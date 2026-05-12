@@ -1,0 +1,13 @@
+lm_eval:
+  # Generation tasks:
+  - gsm8k
+  - bbh
+  - ifeval
+  - mmmu_val  # multimodal generation
+  # Scoring tasks:
+  - mmlu
+  - hellaswag
+  - arc_easy
+  - arc_challenge
+  - winogrande
+  - piqa

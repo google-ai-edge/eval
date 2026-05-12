@@ -1,0 +1,47 @@
+[project]
+name = "ai-edge-eval"
+version = "0.0.1"
+# Core dependencies required for the pipeline logic and CLI to function
+dependencies = [
+    "click",
+    "pydantic>=2.0",
+    "requests>=2.31",
+    "pyyaml>=6.0",
+    "tqdm"
+]
+
+[project.optional-dependencies]
+# Dependencies specifically for the LiteRT-LM server-based runner
+litert-lm = [
+    "litert_lm",
+    "fastapi>=0.110",
+    "huggingface_hub",
+    "uvicorn>=0.29"
+]
+
+# Dependencies specifically for the LM-Eval framework
+lm-eval = [
+    "lm_eval>=0.4",
+    "tenacity",
+]
+
+# Dependencies for running standard models natively (e.g., via HuggingFace)
+hf = [
+    "torch",
+    "accelerate",
+    "transformers>=4.40"
+]
+
+# Dependencies for running multimodal models natively via HuggingFace Multimodal
+hf-multimodal = [
+    "torchvision",
+]
+
+# Meta-group for a complete local evaluation environment
+all = ["ai-edge-eval[litert-lm,lm-eval,hf,hf-multimodal]"]
+
+[project.scripts]
+ai-edge-eval = "ai_edge_eval.cli.main:main"
+
+[tool.setuptools.package-data]
+"*" = ["*.yaml"]

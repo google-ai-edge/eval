@@ -1,0 +1,9 @@
+lm_eval:
+  - litert-lm
+  # Below are all aliases for HuggingFace.
+  - hf
+  - hf-auto
+  - huggingface
+  - hf-multimodal
+custom:
+  - litert-lm
