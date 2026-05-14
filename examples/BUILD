@@ -13,14 +13,11 @@
 # limitations under the License.
 
 load("//third_party/bazel_rules/rules_python/python:py_library.bzl", "py_library")
-load("//tools/build_defs/license:license.bzl", "license")
 
 package(
-    default_applicable_licenses = [":license"],
+    default_applicable_licenses = ["//third_party/py/ai_edge_eval:license"],
     default_visibility = ["//third_party/py/ai_edge_eval:__subpackages__"],
 )
-
-license(name = "license")
 
 py_library(
     name = "custom_task_example",

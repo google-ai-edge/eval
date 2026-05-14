@@ -2,7 +2,7 @@
 
 This repository provides an evaluation framework and CLI runner for LiteRT LM models as well as standard native models (e.g. HF, OpenAI) supporting both single and multi-modality use cases.
 
-## Running Evaluations in Google3
+## Running Evaluations
 
 ### Custom Runner (LiteRT LM - Text Sampling)
 
