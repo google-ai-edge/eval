@@ -5,30 +5,44 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ai-edge-eval"
 version = "0.0.1"
+description = "Evaluation framework and CLI runner for LiteRT LM and native models."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Google AI Edge Team", email = "ai-edge-devtools@google.com" }
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 # Core dependencies required for the pipeline logic and CLI to function
 dependencies = [
+    "absl-py>=2.0.0",
     "click",
-    "pydantic>=2.0",
-    "requests>=2.31",
-    "pyyaml>=6.0",
-    "tqdm"
-]
-
-[project.optional-dependencies]
-# Dependencies specifically for the LiteRT-LM server-based runner
-litert-lm = [
-    "litert_lm",
     "fastapi>=0.110",
+    "httpx>=0.27.0",
     "huggingface_hub",
+    "immutabledict",
+    "langdetect",
+    "litert_lm",
+    "lm_eval>=0.4",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "requests>=2.31",
+    "tenacity",
+    "tqdm",
     "uvicorn>=0.29"
 ]
 
-# Dependencies specifically for the LM-Eval framework
-lm-eval = [
-    "lm_eval>=0.4",
-    "tenacity",
-]
-
+[project.optional-dependencies]
 # Dependencies for running standard models natively (e.g., via HuggingFace)
 hf = [
     "torch",
@@ -41,11 +55,21 @@ hf-multimodal = [
     "torchvision",
 ]
 
+# Development and testing dependencies
+dev = [
+    "pytest>=8.0.0",
+]
+
 # Meta-group for a complete local evaluation environment
-all = ["ai-edge-eval[litert-lm,lm-eval,hf,hf-multimodal]"]
+all = ["ai-edge-eval[hf,hf-multimodal]"]
 
 [project.scripts]
 ai-edge-eval = "ai_edge_eval.cli.main:main"
+
+[project.urls]
+Homepage = "https://github.com/google-ai-edge/eval"
+Repository = "https://github.com/google-ai-edge/eval"
+"Bug Tracker" = "https://github.com/google-ai-edge/eval/issues"
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml"]

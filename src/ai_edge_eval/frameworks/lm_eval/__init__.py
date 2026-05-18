@@ -12,13 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-lm_eval:
-  - litert-lm
-  # "hf" is the primary canonical runner name for native HuggingFace text models.
-  # "hf-auto" and "huggingface" are legacy synonyms kept strictly for backward compatibility.
-  - hf
-  - hf-auto
-  - huggingface
-  - hf-multimodal
-custom:
-  - litert-lm
+"""lm-eval framework evaluation package."""
+
+# pylint: disable=unused-import,g-bad-import-order,g-importing-member
+from ai_edge_eval.frameworks.lm_eval.lm_eval import LmEvalFramework

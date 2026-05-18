@@ -36,8 +36,12 @@ class TestLmEvalAdapter(unittest.TestCase):
     self.mock_runner.__enter__.return_value = self.mock_runner
     # pylint: enable=protected-access
 
-  @mock.patch("ai_edge_eval.frameworks.lm_eval.lm_eval")
-  @mock.patch("ai_edge_eval.frameworks.lm_eval.lm_eval_tasks")
+  @mock.patch(
+      "ai_edge_eval.frameworks.lm_eval.lm_eval.lm_eval"
+  )
+  @mock.patch(
+      "ai_edge_eval.frameworks.lm_eval.lm_eval.lm_eval_tasks"
+  )
   def test_evaluate(self, mock_tasks, mock_lm_eval):
 
     mock_lm_eval.simple_evaluate.return_value = {
@@ -70,8 +74,12 @@ class TestLmEvalAdapter(unittest.TestCase):
     self.assertEqual(results.aggregated_metrics["task1"]["acc"], 0.9)
     self.assertEqual(results.metadata["lm_eval_version"], "0.4")
 
-  @mock.patch("ai_edge_eval.frameworks.lm_eval.lm_eval")
-  @mock.patch("ai_edge_eval.frameworks.lm_eval.lm_eval_tasks")
+  @mock.patch(
+      "ai_edge_eval.frameworks.lm_eval.lm_eval.lm_eval"
+  )
+  @mock.patch(
+      "ai_edge_eval.frameworks.lm_eval.lm_eval.lm_eval_tasks"
+  )
   def test_evaluate_native(self, mock_tasks, mock_lm_eval):
 
     mock_lm_eval.simple_evaluate.return_value = {
@@ -104,8 +112,12 @@ class TestLmEvalAdapter(unittest.TestCase):
     self.assertEqual(results.framework_type, "lm-eval")
     self.assertEqual(results.aggregated_metrics["task2"]["acc"], 0.95)
 
-  @mock.patch("ai_edge_eval.frameworks.lm_eval.lm_eval")
-  @mock.patch("ai_edge_eval.frameworks.lm_eval.lm_eval_tasks")
+  @mock.patch(
+      "ai_edge_eval.frameworks.lm_eval.lm_eval.lm_eval"
+  )
+  @mock.patch(
+      "ai_edge_eval.frameworks.lm_eval.lm_eval.lm_eval_tasks"
+  )
   def test_evaluate_warns_loglikelihood_tasks(self, mock_tasks, mock_lm_eval):
     mock_task = mock.MagicMock()
     mock_task.OUTPUT_TYPE = "loglikelihood"
@@ -173,8 +185,12 @@ class TestLmEvalAdapter(unittest.TestCase):
     ):
       framework.evaluate_native(config_device, ["task2"])
 
-  @mock.patch("ai_edge_eval.frameworks.lm_eval.lm_eval")
-  @mock.patch("ai_edge_eval.frameworks.lm_eval.lm_eval_tasks")
+  @mock.patch(
+      "ai_edge_eval.frameworks.lm_eval.lm_eval.lm_eval"
+  )
+  @mock.patch(
+      "ai_edge_eval.frameworks.lm_eval.lm_eval.lm_eval_tasks"
+  )
   def test_evaluate_native_with_top_level_attributes(
       self, mock_tasks, mock_lm_eval
   ):
@@ -216,7 +232,9 @@ class TestLmEvalAdapter(unittest.TestCase):
 
   @mock.patch("inspect.signature")
   @mock.patch("lm_eval.api.registry")
-  @mock.patch("ai_edge_eval.frameworks.lm_eval.lm_eval")
+  @mock.patch(
+      "ai_edge_eval.frameworks.lm_eval.lm_eval.lm_eval"
+  )
   def test_evaluate_native_dynamic_path_key(
       self, mock_lm_eval, mock_registry, mock_sig
   ):

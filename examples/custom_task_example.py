@@ -22,7 +22,7 @@ ai-edge-eval \
   --device cpu \
   --framework custom \
   --eval-args "samples={'my_iterator_qa':'1-3'}" \
-  --custom-tasks-file /your_workspace/google3/third_party/py/ai_edge_eval/examples/custom_task_example.py \
+  --custom-tasks-file examples/custom_task_example.py \
   --tasks my_iterator_qa \
   --output-dir /tmp/results
 ```

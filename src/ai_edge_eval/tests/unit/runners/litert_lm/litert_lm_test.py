@@ -17,28 +17,32 @@
 import unittest
 from unittest import mock
 
-from ai_edge_eval.runners import litert_lm
+from ai_edge_eval.runners.litert_lm import litert_lm
 
 
 class TestLiteRtLmRunner(unittest.TestCase):
 
   @mock.patch("ai_edge_eval.runners.base.requests.post")
   @mock.patch(
-      "ai_edge_eval.runners.litert_lm.threading.Thread"
-  )
-  @mock.patch("ai_edge_eval.runners.litert_lm.uvicorn.Server")
-  @mock.patch("ai_edge_eval.runners.litert_lm.uvicorn.Config")
-  @mock.patch(
-      "ai_edge_eval.runners._litert_lm_server.build_app"
+      "ai_edge_eval.runners.litert_lm.litert_lm.threading.Thread"
   )
   @mock.patch(
-      "ai_edge_eval.runners._litert_lm_server.wait_for_server"
+      "ai_edge_eval.runners.litert_lm.litert_lm.uvicorn.Server"
   )
   @mock.patch(
-      "ai_edge_eval.runners.litert_lm.litert_lm.set_min_log_severity"
+      "ai_edge_eval.runners.litert_lm.litert_lm.uvicorn.Config"
   )
   @mock.patch(
-      "ai_edge_eval.runners.litert_lm.litert_lm.Engine"
+      "ai_edge_eval.runners.litert_lm._litert_lm_server.build_app"
+  )
+  @mock.patch(
+      "ai_edge_eval.runners.litert_lm._litert_lm_server.wait_for_server"
+  )
+  @mock.patch(
+      "ai_edge_eval.runners.litert_lm.litert_lm.litert_lm.set_min_log_severity"
+  )
+  @mock.patch(
+      "ai_edge_eval.runners.litert_lm.litert_lm.litert_lm.Engine"
   )
   def test_initialization(
       self,
@@ -71,7 +75,7 @@ class TestLiteRtLmRunner(unittest.TestCase):
     # Verify Engine was initialized correctly.
     mock_engine.assert_called_once_with(
         "/path/to/model",
-        backend=litert_lm.litert_lm.Backend.GPU(),
+        backend=litert_lm._resolve_backend(litert_lm.litert_lm.Backend.GPU),
         max_num_tokens=2048,
     )
     mock_set_min_log_severity.assert_called_once_with(mock.ANY)
@@ -95,18 +99,22 @@ class TestLiteRtLmRunner(unittest.TestCase):
 
   @mock.patch("ai_edge_eval.runners.base.requests.post")
   @mock.patch(
-      "ai_edge_eval.runners.litert_lm.threading.Thread"
-  )
-  @mock.patch("ai_edge_eval.runners.litert_lm.uvicorn.Server")
-  @mock.patch("ai_edge_eval.runners.litert_lm.uvicorn.Config")
-  @mock.patch(
-      "ai_edge_eval.runners._litert_lm_server.build_app"
+      "ai_edge_eval.runners.litert_lm.litert_lm.threading.Thread"
   )
   @mock.patch(
-      "ai_edge_eval.runners._litert_lm_server.wait_for_server"
+      "ai_edge_eval.runners.litert_lm.litert_lm.uvicorn.Server"
   )
   @mock.patch(
-      "ai_edge_eval.runners.litert_lm.litert_lm.Engine"
+      "ai_edge_eval.runners.litert_lm.litert_lm.uvicorn.Config"
+  )
+  @mock.patch(
+      "ai_edge_eval.runners.litert_lm._litert_lm_server.build_app"
+  )
+  @mock.patch(
+      "ai_edge_eval.runners.litert_lm._litert_lm_server.wait_for_server"
+  )
+  @mock.patch(
+      "ai_edge_eval.runners.litert_lm.litert_lm.litert_lm.Engine"
   )
   def test_initialization_with_multimodal_backends(
       self,
@@ -127,17 +135,21 @@ class TestLiteRtLmRunner(unittest.TestCase):
         model_name="my-test-model",
         backend="cpu",
         vision_backend="gpu",
-        audio_backend="npu",
+        audio_backend="cpu",
     )
     runner = litert_lm.LiteRtLmRunner(config)
     with mock.patch("os.path.exists", return_value=True):
       runner.start()
     mock_engine.assert_called_once_with(
         "/path/to/model",
-        backend=litert_lm.litert_lm.Backend.CPU(),
+        backend=litert_lm._resolve_backend(litert_lm.litert_lm.Backend.CPU),
         max_num_tokens=4096,
-        vision_backend=litert_lm.litert_lm.Backend.GPU(),
-        audio_backend=litert_lm.litert_lm.Backend.NPU(),
+        vision_backend=litert_lm._resolve_backend(
+            litert_lm.litert_lm.Backend.GPU
+        ),
+        audio_backend=litert_lm._resolve_backend(
+            litert_lm.litert_lm.Backend.CPU
+        ),
     )
     runner.stop()
 
@@ -195,10 +207,12 @@ class TestLiteRtLmRunner(unittest.TestCase):
           runner_args={"backend": "cpu"},
       )
 
-  @mock.patch("ai_edge_eval.runners.litert_lm.os.path.exists")
+  @mock.patch(
+      "ai_edge_eval.runners.litert_lm.litert_lm.os.path.exists"
+  )
   @mock.patch("huggingface_hub.hf_hub_download")
   @mock.patch(
-      "ai_edge_eval.runners.litert_lm.litert_lm.Engine"
+      "ai_edge_eval.runners.litert_lm.litert_lm.litert_lm.Engine"
   )
   def test_hf_path_resolution(self, mock_engine, mock_download, mock_exists):
     mock_exists.return_value = False

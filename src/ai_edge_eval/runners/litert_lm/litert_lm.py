@@ -18,9 +18,9 @@ import os
 import threading
 from typing import Any, Callable
 
-from ai_edge_eval.runners import _litert_lm_server
 from ai_edge_eval.runners import base
 from ai_edge_eval.runners import registry
+from ai_edge_eval.runners.litert_lm import _litert_lm_server
 import uvicorn
 
 import litert_lm
@@ -216,10 +216,7 @@ class LiteRtLmRunner(base.AbstractRunner):
         or self.capabilities.multimodal_generation
     ):
       self._validate_completions()
-    if (
-        self.capabilities.text_scoring
-        or self.capabilities.multimodal_scoring
-    ):
+    if self.capabilities.text_scoring or self.capabilities.multimodal_scoring:
       self._validate_scoring()
 
   def stop(self) -> None:

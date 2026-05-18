@@ -17,7 +17,7 @@
 import unittest
 from unittest import mock
 
-from ai_edge_eval.runners import _litert_lm_server
+from ai_edge_eval.runners.litert_lm import _litert_lm_server
 import fastapi.testclient
 
 
@@ -66,7 +66,7 @@ class TestLiteRTLMServer(unittest.TestCase):
     self.assertEqual(choices[0]["message"]["content"], "Hi there!")
 
   @mock.patch(
-      "ai_edge_eval.runners._litert_lm_server.litert_lm.SamplerConfig"
+      "ai_edge_eval.runners.litert_lm._litert_lm_server.litert_lm.SamplerConfig"
   )
   def test_chat_completions_sampler_config(self, mock_sampler_config_class):
     mock_conv = mock.MagicMock()
