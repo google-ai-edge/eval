@@ -1,17 +1,40 @@
-# AI Edge Eval
+# 🎯 AI Edge Eval
+
+**An advanced evaluation framework and CLI runner for LiteRT LM and native models.**
 
 [![PyPI version](https://img.shields.io/pypi/v/ai-edge-eval.svg)](https://pypi.org/project/ai-edge-eval/)
+[![Python Support](https://img.shields.io/badge/python-3.10+-blue.svg)](https://pypi.org/project/ai-edge-eval/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-`ai-edge-eval` is an evaluation framework and CLI runner for LiteRT LM models and standard native models (e.g., HuggingFace, OpenAI), supporting both single and multi-modality use cases.
+---
 
-## Installation
+`ai-edge-eval` is a powerful evaluation framework and CLI runner designed for **LiteRT LM models** and standard native models (e.g., **HuggingFace**). It provides robust support for both **single-modality** (text) and **multi-modality** (vision + text) use cases.
+
+## 📖 Table of Contents
+- [🚀 Installation](#-installation)
+  - [Option 1: Use uv (Recommended)](#option-1-use-uv-recommended)
+  - [Option 2: Use Standard pip](#option-2-use-standard-pip)
+  - [Optional Dependency Groups](#optional-dependency-groups)
+- [⚡ Running Evaluations](#-running-evaluations)
+  - [LiteRT LM Runners](#🤖-litert-lm-runners)
+  - [Direct Native Library Runners](#🚀-direct-native-library-runners-huggingface-etc)
+- [🛠️ Custom Task CUJ](#️-custom-task-cuj)
+  - [1. Prepare the Dataset](#1-prepare-the-dataset)
+  - [2. Task Definition](#2-task-definition)
+  - [3. Run Custom Evaluation](#3-run-custom-evaluation)
+- [🔍 Discovery Commands](#-discovery-commands)
+- [⚖️ Dataset Licensing and Terms of Use](#️-dataset-licensing-and-terms-of-use)
+
+---
+
+## 🚀 Installation
 
 We support installation using either `uv` (recommended for ultra-fast dependency resolution) or standard `pip` within a virtual environment (Python 3.10+).
 
-### Option 1: Use UV (Recommended)
+### Option 1: Use `uv` (Recommended)
 
-`uv` is an extremely fast Python package manager written in Rust.
+> [!TIP]
+> [`uv`](https://github.com/astral-sh/uv) is an extremely fast Python package manager written in Rust. Using it significantly speeds up environment creation and dependency installation.
 
 #### 1. Create and Activate Virtual Environment
 
@@ -21,17 +44,15 @@ uv venv --clear --python=3.13 --seed
 source .venv/bin/activate
 ```
 
-#### 2. Install ai-edge-eval
+#### 2. Install `ai-edge-eval`
 
-**2a. Install from PyPI**
-
+**Option A: Install from PyPI**
 ```bash
 # Install the package into the active virtual environment
 uv pip install -q ai-edge-eval
 ```
 
-**2b. Or Install from Local Clone (Recommended for Development)**
-
+**Option B: Install from Local Clone (Recommended for Development)**
 ```bash
 git clone https://github.com/google-ai-edge/eval.git
 cd eval
@@ -40,7 +61,7 @@ cd eval
 uv pip install -e .
 ```
 
-### Option 2: Use Standard Pip
+### Option 2: Use Standard `pip`
 
 #### 1. Create and Activate Virtual Environment
 
@@ -50,16 +71,14 @@ python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-#### 2. Install ai-edge-eval
+#### 2. Install `ai-edge-eval`
 
-**2a. Install from PyPI**
-
+**Option A: Install from PyPI**
 ```bash
 pip install -q ai-edge-eval
 ```
 
-**2b. Or Install from Local Clone**
-
+**Option B: Install from Local Clone**
 ```bash
 git clone https://github.com/google-ai-edge/eval.git
 cd eval
@@ -68,43 +87,49 @@ cd eval
 pip install -e .
 ```
 
-### Optional Dependency Groups
+---
 
-The base installation bundles full support for LiteRT-LM evaluation out-of-the-box.
+### 📦 Optional Dependency Groups
 
-To install support for running native PyTorch/HuggingFace models, specify the optional dependency groups:
+The base installation bundles full support for LiteRT-LM evaluation out-of-the-box. To install support for running native PyTorch/HuggingFace models, specify the optional dependency groups:
 
-#### Using UV (Recommended)
-
+#### Using `uv` (Recommended)
 ```bash
 # Install HuggingFace native runner support (includes PyTorch)
-uv pip install ai-edge-eval[hf]
+uv pip install "ai-edge-eval[hf]"
 
 # Install HuggingFace multimodal runner support (includes TorchVision)
-uv pip install ai-edge-eval[hf-multimodal]
+uv pip install "ai-edge-eval[hf-multimodal]"
 
 # Install everything for local evaluation
-uv pip install ai-edge-eval[all]
+uv pip install "ai-edge-eval[all]"
 ```
 
-#### Using Standard Pip
-
+#### Using Standard `pip`
 ```bash
 # Install HuggingFace native runner support (includes PyTorch)
-pip install ai-edge-eval[hf]
+pip install "ai-edge-eval[hf]"
 
 # Install HuggingFace multimodal runner support (includes TorchVision)
-pip install ai-edge-eval[hf-multimodal]
+pip install "ai-edge-eval[hf-multimodal]"
 
 # Install everything for local evaluation
-pip install ai-edge-eval[all]
+pip install "ai-edge-eval[all]"
 ```
 
-## Running Evaluations
+> [!NOTE]
+> Quotes around package names with brackets (e.g., `"ai-edge-eval[hf]"`) prevent shell globbing issues in Zsh and Bash.
 
-### Custom Runner (LiteRT LM - Text Sampling)
+---
 
-To run evaluation on a standard text benchmark like `ifeval` and `bbh`:
+## ⚡ Running Evaluations
+
+`ai-edge-eval` provides high-performance runners for both LiteRT models and native HuggingFace models.
+
+### 🤖 LiteRT LM Runners
+
+#### Text Sampling
+Run evaluation on standard text benchmarks like `ifeval` and `bbh`:
 
 ```bash
 ai-edge-eval \
@@ -118,9 +143,8 @@ ai-edge-eval \
       --output-dir your_result_directory
 ```
 
-### Custom Runner (LiteRT LM - Text Scoring)
-
-To run evaluation on a standard multiple-choice scoring benchmark like `piqa`:
+#### Text Scoring
+Run evaluation on standard multiple-choice scoring benchmarks like `piqa`:
 
 ```bash
 ai-edge-eval \
@@ -133,9 +157,8 @@ ai-edge-eval \
       --output-dir your_result_directory
 ```
 
-### Custom Runner (LiteRT LM - Multimodal Sampling)
-
-To run multimodal sampling using vision capabilities (e.g., on `mmmu_val`):
+#### Multimodal Sampling
+Run multimodal sampling using vision capabilities (e.g., on `mmmu_val`):
 
 ```bash
 ai-edge-eval \
@@ -149,9 +172,10 @@ ai-edge-eval \
       --output-dir your_result_directory
 ```
 
-### Direct Native Library (HuggingFace, etc)
+### 🚀 Direct Native Library Runners (HuggingFace, etc.)
 
-To run evaluation natively using direct library wrappers via lm-eval:
+#### Text Evaluation
+Run evaluation natively using direct library wrappers via `lm-eval`:
 
 ```bash
 ai-edge-eval \
@@ -164,9 +188,8 @@ ai-edge-eval \
       --output-dir your_result_directory
 ```
 
-### Direct Native Library (HuggingFace Multimodal)
-
-To run multimodal evaluation natively using direct library wrappers via lm-eval:
+#### Multimodal Evaluation
+Run multimodal evaluation natively using direct library wrappers via `lm-eval`:
 
 ```bash
 ai-edge-eval \
@@ -180,15 +203,21 @@ ai-edge-eval \
       --output-dir your_result_directory
 ```
 
-**Note:** For HuggingFace runners, `huggingface/repo` refers to the HuggingFace model ID, such as `Qwen/Qwen2.5-7B-Instruct` or `google/gemma-3-270m`.
+> [!IMPORTANT]
+> For HuggingFace runners, `huggingface/repo` refers to the HuggingFace model ID, such as `Qwen/Qwen2.5-7B-Instruct` or `google/gemma-3-270m`.
 
 ---
 
-## Custom Task CUJ
+## 🛠️ Custom Task CUJ
+
+`ai-edge-eval` makes it seamless to define and run custom evaluation benchmarks tailored to your specific datasets and metrics.
 
 ### 1. Prepare the Dataset
 
-Prepare your evaluation dataset in JSON Lines (`.jsonl`) format, where each entry separates the input context (`messages`) and the expected output (`ground_truth`), along with optional `metadata`. The `messages` field strictly follows the canonical OpenAI Chat Completion format (a list of dictionaries specifying `role` and `content`):
+Prepare your evaluation dataset in JSON Lines (`.jsonl`) format, where each entry separates the input context (`messages`) and the expected output (`ground_truth`), along with optional `metadata`. 
+
+> [!NOTE]
+> The `messages` field strictly follows the canonical OpenAI Chat Completion format (a list of dictionaries specifying `role` and `content`).
 
 ```json
 {
@@ -203,16 +232,15 @@ Prepare your evaluation dataset in JSON Lines (`.jsonl`) format, where each entr
 
 ### 2. Task Definition
 
-To run custom evaluation benchmarks, register your generation parameters and evaluation hooks via a Python file (`register_custom_tasks.py`):
+To run custom evaluation benchmarks, register your generation parameters and evaluation hooks via a Python file (e.g., `register_custom_tasks.py`):
 
 ```python
 # File: register_custom_tasks.py
 
-from ai_edge_eval.config.generation_config import GenerationConfig
-from ai_edge_eval.custom_tasks.base import CustomTask, DatasetRow
-from ai_edge_eval.custom_tasks.registry import TaskRegistry
-
 from typing import Iterator
+from model_eval.config.generation_config import GenerationConfig
+from model_eval.custom_tasks.base import CustomTask, DatasetRow
+from model_eval.custom_tasks.registry import TaskRegistry
 
 def exact_match(
     preds: Iterator[str], gts: Iterator[str], rows: Iterator[DatasetRow[str]]
@@ -252,11 +280,12 @@ ai-edge-eval \
 
 ---
 
-## Discovery Commands
+## 🔍 Discovery Commands
+
+`ai-edge-eval` includes built-in discovery utilities to help you explore supported configurations, tasks, and runners.
 
 ### Argument Discovery
-
-You can use the `list-args` subcommand to inspect the available configurations and parameters exposed by a given runner or evaluation framework:
+Use the `list-args` subcommand to inspect the available configurations and parameters exposed by a given runner or evaluation framework:
 
 ```bash
 # Discover runner arguments
@@ -267,8 +296,7 @@ ai-edge-eval list-args --framework lm-eval
 ```
 
 ### Supported Tasks and Runners
-
-You can use the `list-tasks` and `list-runners` subcommands to view the allowlist of supported tasks and runners for a given framework:
+Use the `list-tasks` and `list-runners` subcommands to view the allowlist of supported tasks and runners for a given framework:
 
 ```bash
 # List supported tasks for a framework
@@ -280,20 +308,23 @@ ai-edge-eval list-runners --framework lm-eval
 
 ---
 
-## Dataset Licensing and Terms of Use
+## ⚖️ Dataset Licensing and Terms of Use
 
-`ai-edge-eval` is an evaluation runner and command-line toolkit licensed under the Apache 2.0 License.
+`ai-edge-eval` is an evaluation runner and command-line toolkit licensed under the **Apache 2.0 License**.
 
 ### Third-Party Dataset Integration
-When executing benchmark evaluations, `ai-edge-eval` relies on upstream execution frameworks (such as EleutherAI's `lm-eval` harness) to dynamically download and cache evaluation datasets from external sources (e.g., HuggingFace Hub).
 
-**`ai-edge-eval` does not host, redistribute, or sublicense these external datasets.**
+> [!WARNING]
+> When executing benchmark evaluations, `ai-edge-eval` relies on upstream execution frameworks (such as EleutherAI's `lm-eval` harness) to dynamically download and cache evaluation datasets from external sources (e.g., HuggingFace Hub).
+> **`ai-edge-eval` does not host, redistribute, or sublicense these external datasets.**
 
 ### User Responsibility
-Every evaluation dataset maintains its own licensing terms, ownership rights, and permitted usage policies (including potential non-commercial restrictions). 
 
-**By executing evaluations using `ai-edge-eval`, you are responsible for:**
-1. Reviewing and consenting to the specific terms of service and license agreement associated with each evaluated benchmark.
-2. Adhering to any commercial or distribution constraints associated with the underlying data.
+Every evaluation dataset maintains its own licensing terms, ownership rights, and permitted usage policies (including potential non-commercial restrictions).
+
+> [!IMPORTANT]
+> **By executing evaluations using `ai-edge-eval`, you are responsible for:**
+> 1. Reviewing and consenting to the specific terms of service and license agreement associated with each evaluated benchmark.
+> 2. Adhering to any commercial or distribution constraints associated with the underlying data.
 
 For detailed licensing information regarding specific datasets, refer to their respective model and dataset cards on the HuggingFace Hub or official repository pages.

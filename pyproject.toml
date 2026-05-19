@@ -64,12 +64,15 @@ dev = [
 all = ["ai-edge-eval[hf,hf-multimodal]"]
 
 [project.scripts]
-ai-edge-eval = "ai_edge_eval.cli.main:main"
+ai-edge-eval = "model_eval.cli.main:main"
 
 [project.urls]
 Homepage = "https://github.com/google-ai-edge/eval"
 Repository = "https://github.com/google-ai-edge/eval"
 "Bug Tracker" = "https://github.com/google-ai-edge/eval/issues"
+
+[tool.setuptools.packages.find]
+include = ["model_eval*"]
 
 [tool.setuptools.package-data]
 "*" = ["*.yaml"]
