@@ -8,10 +8,11 @@
 
 ---
 
-`ai-edge-eval` is a powerful evaluation framework and CLI runner designed for **LiteRT LM models** and standard native models (e.g., **HuggingFace**). It provides robust support for both **single-modality** (text) and **multi-modality** (vision + text) use cases.
+`ai-edge-eval` is a powerful evaluation framework and CLI runner designed for **LiteRT LM models** and standard native models (e.g., **HuggingFace**). Built for POSIX-compliant systems, it officially supports **Linux**, **macOS**, and **Windows (via WSL2)**, providing robust support for both **single-modality** (text) and **multi-modality** (vision + text) use cases.
 
 ## 📖 Table of Contents
 - [🚀 Installation](#-installation)
+  - [📋 System Requirements](#-system-requirements)
   - [Option 1: Use uv (Recommended)](#option-1-use-uv-recommended)
   - [Option 2: Use Standard pip](#option-2-use-standard-pip)
   - [Optional Dependency Groups](#optional-dependency-groups)
@@ -28,6 +29,15 @@
 ---
 
 ## 🚀 Installation
+
+### 📋 System Requirements
+
+`ai-edge-eval` requires a POSIX-compliant Unix-like environment. The following platforms are officially supported:
+- **Linux**: Standard distributions (e.g., Ubuntu, Debian).
+- **macOS**: Both Intel and Apple Silicon (M-series) architectures.
+- **Windows**: Supported **exclusively** via the [Windows Subsystem for Linux (WSL2)](https://learn.microsoft.com/en-us/windows/wsl/install). *(Note: Native Windows execution via CMD or PowerShell is not supported.)*
+
+---
 
 We support installation using either `uv` (recommended for ultra-fast dependency resolution) or standard `pip` within a virtual environment (Python 3.10+).
 
