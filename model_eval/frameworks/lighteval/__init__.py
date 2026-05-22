@@ -12,26 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-lm_eval:
-  # Generation tasks:
-  - gsm8k
-  - bbh
-  - ifeval
-  - mmmu_val  # multimodal generation
-  # Scoring tasks:
-  - mmlu
-  - hellaswag
-  - arc_easy
-  - arc_challenge
-  - winogrande
-  - piqa
+"""LightEval framework package."""
 
-lighteval:
-  # Generation tasks:
-  - bigbench_hard
-  - ifeval
-  # Scoring tasks:
-  - mmlu
-  - arc:easy
-  - arc:challenge
-  - winogrande
+# pylint: disable=unused-import,g-bad-import-order,g-importing-member
+from model_eval.frameworks.lighteval.lighteval import LightEvalFramework

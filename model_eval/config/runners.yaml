@@ -22,3 +22,6 @@ lm_eval:
   - hf-multimodal
 custom:
   - litert-lm
+lighteval:
+  - litert-lm
+  - accelerate

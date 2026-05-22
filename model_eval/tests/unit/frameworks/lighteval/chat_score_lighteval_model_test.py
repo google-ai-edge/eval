@@ -1,0 +1,99 @@
+# Copyright 2026 The ODML Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Unit tests for chat score lighteval model."""
+
+import sys
+from typing import Any
+import unittest
+from unittest import mock
+
+
+# Stub lighteval classes for the model test.
+class MockLiteLLMClient:
+
+  def __init__(self, config: Any):
+    self.model_name = getattr(config, "model_name", "test-model")
+
+
+class MockModelResponse:
+
+  def __init__(self, logprobs=None, argmax_logits_eq_gold=None):
+    self.logprobs = logprobs
+    self.argmax_logits_eq_gold = argmax_logits_eq_gold
+
+
+lighteval_mock = mock.MagicMock()
+lighteval_mock.LiteLLMClient = MockLiteLLMClient
+lighteval_mock.ModelResponse = MockModelResponse
+lighteval_mock.model_output.ModelResponse = MockModelResponse
+lighteval_mock.litellm_model = lighteval_mock
+
+sys.modules["lighteval"] = lighteval_mock
+sys.modules["lighteval.models"] = lighteval_mock
+sys.modules["lighteval.models.endpoints"] = lighteval_mock
+sys.modules["lighteval.models.endpoints.litellm_model"] = lighteval_mock
+sys.modules["lighteval.models.model_output"] = lighteval_mock
+sys.modules["lighteval.pipeline"] = lighteval_mock
+sys.modules["lighteval.tasks"] = lighteval_mock
+sys.modules["lighteval.tasks.registry"] = lighteval_mock
+sys.modules["lighteval.logging"] = lighteval_mock
+sys.modules["lighteval.logging.evaluation_tracker"] = lighteval_mock
+
+from model_eval.frameworks.lighteval import _chat_score_lighteval_model  # pylint: disable=g-import-not-at-top
+
+
+class TestChatScoreLightevalModel(unittest.TestCase):
+
+  def test_chat_score_model(self):
+    mock_client = mock.MagicMock()
+    mock_client.__enter__.return_value = mock_client
+    mock_client.__exit__.return_value = None
+    mock_resp = mock.MagicMock()
+    mock_resp.json.return_value = {
+        "choices": [{"score": -1.5, "logprobs": {"is_greedy": True}}]
+    }
+    mock_client.post.return_value = mock_resp
+
+    config = mock.MagicMock()
+    config.base_url = "http://127.0.0.1:8000/"
+    config.model_name = "test-model"
+
+    with mock.patch.object(
+        _chat_score_lighteval_model.httpx, "Client"
+    ) as mock_httpx_cls:
+      mock_httpx_cls.return_value = mock_client
+      model = _chat_score_lighteval_model.ChatScoreLightevalModel(config)
+      model._cache = None
+
+      mock_doc = mock.MagicMock()
+      mock_doc.query = "hello"
+      mock_doc.choices = ["a", "b", " world"]
+      mock_doc.gold_index = 2
+
+      res_ll = model.loglikelihood([mock_doc])
+    self.assertEqual(len(res_ll), 1)
+    self.assertEqual(res_ll[0].logprobs, [-1.5, -1.5, -1.5])
+    self.assertEqual(res_ll[0].argmax_logits_eq_gold, [True, True, True])
+    self.assertEqual(mock_client.post.call_count, 3)
+
+    model.loglikelihood_rolling = mock.MagicMock(
+        side_effect=NotImplementedError
+    )
+    with self.assertRaises(NotImplementedError):
+      model.loglikelihood_rolling([mock_doc])
+
+
+if __name__ == "__main__":
+  unittest.main()

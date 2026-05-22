@@ -16,11 +16,47 @@
 
 import json
 import os
+import sys
 import tempfile
 import unittest
 from unittest import mock
 
-from model_eval.api import pipeline
+
+# Stub lighteval classes for the pipeline test.
+class MockTransformersModelConfig:
+
+  def __init__(self, *args, **kwargs):
+    self.__dict__.update(kwargs)
+
+
+class MockPipelineParameters:
+
+  def __init__(self, *args, **kwargs):
+    self.kwargs = kwargs
+    self.__dict__.update(kwargs)
+
+
+lighteval_mock = mock.MagicMock()
+lighteval_mock.TransformersModelConfig = MockTransformersModelConfig
+lighteval_mock.PipelineParameters = MockPipelineParameters
+
+sys.modules["lighteval"] = lighteval_mock
+sys.modules["lighteval.models"] = lighteval_mock
+sys.modules["lighteval.models.custom"] = lighteval_mock
+sys.modules["lighteval.models.custom.custom_model"] = lighteval_mock
+sys.modules["lighteval.models.transformers"] = lighteval_mock
+sys.modules["lighteval.models.transformers.transformers_model"] = lighteval_mock
+sys.modules["lighteval.models.endpoints"] = lighteval_mock
+sys.modules["lighteval.models.endpoints.litellm_model"] = lighteval_mock
+sys.modules["lighteval.models.model_output"] = lighteval_mock
+sys.modules["lighteval.pipeline"] = lighteval_mock
+sys.modules["lighteval.tasks"] = lighteval_mock
+sys.modules["lighteval.tasks.registry"] = lighteval_mock
+sys.modules["lighteval.logging"] = lighteval_mock
+sys.modules["lighteval.logging.evaluation_tracker"] = lighteval_mock
+
+
+from model_eval.api import pipeline  # pylint: disable=g-import-not-at-top
 from model_eval.frameworks import base as framework_base
 from model_eval.runners import base as runner_base
 from model_eval.runners import litert_lm
@@ -286,6 +322,31 @@ class EvalPipelineTest(unittest.TestCase):
     # pylint: disable=protected-access
     output = pipeline.EvalPipeline._format_fields([], "Empty Header")
     self.assertEqual(output.strip(), "Empty Header")
+
+  @mock.patch("model_eval.api.pipeline._load_task_allowlist")
+  @mock.patch(
+      "model_eval.frameworks.lighteval.lighteval.LightEvalFramework._run_pipeline"
+  )
+  def test_pipeline_dispatch_lighteval_native(
+      self, mock_run_pipeline, mock_load
+  ):
+    mock_load.return_value = ["example_fallback_task"]
+    mock_res = mock.MagicMock()
+    mock_res.aggregated_metrics = {}
+    mock_res.per_sample_outputs = {}
+    mock_run_pipeline.return_value = mock_res
+
+    model = framework_base.NativeModelConfig(
+        model="accelerate", model_args={"pretrained": "gpt2"}
+    )
+    pipe = pipeline.EvalPipeline(
+        model=model,
+        framework="lighteval",
+        tasks=("example_fallback_task",),
+        output_dir=self.output_dir,
+    )
+    pipe.run()
+    mock_run_pipeline.assert_called_once()
 
 
 if __name__ == "__main__":

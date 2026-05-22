@@ -30,6 +30,7 @@ class FrameworkType(enum.StrEnum):
   """Supported evaluation framework types."""
 
   LM_EVAL = "lm-eval"
+  LIGHTEVAL = "lighteval"
   CUSTOM = "custom"
 
 

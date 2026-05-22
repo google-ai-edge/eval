@@ -31,11 +31,13 @@ import yaml
 
 # Import frameworks and runners to ensure they are registered.
 import model_eval.frameworks.custom  # pylint: disable=unused-import,g-bad-import-order,g-import-not-at-top
+import model_eval.frameworks.lighteval  # pylint: disable=unused-import,g-bad-import-order,g-import-not-at-top
 import model_eval.frameworks.lm_eval  # pylint: disable=unused-import,g-bad-import-order,g-import-not-at-top
 import model_eval.runners.litert_lm  # pylint: disable=unused-import,g-bad-import-order,g-import-not-at-top
 
 # Registry of frameworks that support native library invocation.
 _NATIVE_FRAMEWORKS = {
+    framework_base.FrameworkType.LIGHTEVAL,
     framework_base.FrameworkType.LM_EVAL,
 }
 

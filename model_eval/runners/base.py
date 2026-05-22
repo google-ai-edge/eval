@@ -69,8 +69,23 @@ class AbstractRunner(abc.ABC):
   2. `/v1/chat/score`: Custom endpoint for scoring a chat continuation. The last
      message in the request must have `role="assistant"` (representing the
      continuation string to be scored), while all preceding messages form the
-     context. It returns results structured according to the OpenAI
-     `/v1/completions` response schema.
+     context.
+     It returns results structured according to the OpenAI `/v1/completions`
+     response schema (using a `choices` list and a `logprobs` object), but
+     simplifies client-side evaluation by returning aggregate scoring metadata:
+     {
+       "choices": [
+         {
+           "score": float,          # Server-computed loglikelihood score for
+           the continuation.
+           "logprobs": {
+             "is_greedy": bool,     # True if the continuation matches greedy
+             decoding.
+             ...
+           }
+         }
+       ]
+     }
   """
 
   config: type[RunnerConfig] = RunnerConfig

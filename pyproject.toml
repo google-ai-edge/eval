@@ -60,8 +60,14 @@ dev = [
     "pytest>=8.0.0",
 ]
 
+# Dependencies specifically for the LightEval framework
+lighteval = [
+    "lighteval[litellm]>=0.13",
+    "litellm[caching]>=1.83.7",
+]
+
 # Meta-group for a complete local evaluation environment
-all = ["ai-edge-eval[hf,hf-multimodal]"]
+all = ["ai-edge-eval[hf,hf-multimodal,lighteval]"]
 
 [project.scripts]
 ai-edge-eval = "model_eval.cli.main:main"

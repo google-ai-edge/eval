@@ -14,10 +14,10 @@
 
 """LiteRT LM chat score model for lm-eval."""
 
-import json
 from typing import Any
 
 from model_eval.api import constants as api_constants
+from model_eval.frameworks import utils
 from lm_eval.api import registry  # pylint: disable=g-importing-member
 from lm_eval.models import openai_completions  # pylint: disable=g-importing-member
 import requests as requests_lib
@@ -56,18 +56,9 @@ class LocalChatScoreModel(openai_completions.LocalChatCompletion):
 
     for req in tqdm.tqdm(requests, desc="Requesting API", disable=disable_tqdm):
       context, continuation = req.args
-      # Unpack conversation history if it's a JsonChatStr from
-      # apply_chat_template.
-      if hasattr(context, "prompt"):
-        messages = json.loads(context.prompt)
-      elif not context:
-        messages = []
-      else:
-        # For plain text contexts, treat as a single user turn.
-        messages = [{"role": "user", "content": context}]
 
-      # We always put the continuation in the assistant role.
-      messages.append({"role": "assistant", "content": continuation})
+      # Build the message list.
+      messages = utils.build_chat_score_messages(context, continuation)
 
       payload = {
           "model": self.model,
@@ -78,11 +69,8 @@ class LocalChatScoreModel(openai_completions.LocalChatCompletion):
       response.raise_for_status()
       data = response.json()
 
-      # Since we send a single conversation sequence per request, the response
-      # contains exactly one choice with its corresponding score.
-      choice = data["choices"][0]
-      score = choice["score"]
-      is_greedy = choice["logprobs"]["is_greedy"]
+      # Extract the score and greedy flag from the response.
+      score, is_greedy = utils.parse_chat_score_response(data)
       results.append((score, is_greedy))
 
     return results

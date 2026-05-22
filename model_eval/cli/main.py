@@ -221,7 +221,7 @@ def _execute_eval(
 )
 @click.option(
     "--framework",
-    type=click.Choice(["lm-eval", "custom"]),
+    type=click.Choice(["lm-eval", "lighteval", "custom"]),
     default="lm-eval",
     help="Evaluation framework to use.",
 )
