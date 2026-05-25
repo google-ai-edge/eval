@@ -17,6 +17,7 @@
 import unittest
 from unittest import mock
 
+from model_eval.runners import base
 from model_eval.runners.litert_lm import litert_lm
 
 
@@ -93,7 +94,9 @@ class TestLiteRtLmRunner(unittest.TestCase):
     )
 
     # Verify wait_for_server.
-    mock_wait_for_server.assert_called_once_with("http://0.0.0.0:9090")
+    mock_wait_for_server.assert_called_once_with(
+        "http://0.0.0.0:9090", timeout=base._DEFAULT_TIMEOUT_SECONDS
+    )
 
     runner.stop()
 
@@ -230,6 +233,32 @@ class TestLiteRtLmRunner(unittest.TestCase):
     )
     mock_engine.assert_called_once_with(
         "/cached/download/model.litertlm",
+        backend=mock.ANY,
+        max_num_tokens=mock.ANY,
+    )
+
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.os.path.exists"
+  )
+  @mock.patch("huggingface_hub.hf_hub_download")
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.Engine"
+  )
+  def test_absolute_path_resolution(
+      self, mock_engine, mock_download, mock_exists
+  ):
+    mock_exists.return_value = False
+    config = litert_lm.LiteRtLmRunner.Config(
+        runner_type="litert-lm", model_path="/Users/foo/bar/model.litertlm"
+    )
+    runner = litert_lm.LiteRtLmRunner(config)
+    try:
+      runner.start()
+    except Exception:  # pylint: disable=broad-except
+      pass
+    mock_download.assert_not_called()
+    mock_engine.assert_called_once_with(
+        "/Users/foo/bar/model.litertlm",
         backend=mock.ANY,
         max_num_tokens=mock.ANY,
     )

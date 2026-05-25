@@ -24,6 +24,8 @@ from model_eval.utils import introspection
 import pydantic
 import requests
 
+_DEFAULT_TIMEOUT_SECONDS = 300
+
 
 class RunnerType(enum.StrEnum):
   """Supported runner types."""
@@ -120,11 +122,18 @@ class AbstractRunner(abc.ABC):
     return introspection.get_fields(cls.config)
 
   def __enter__(self) -> "AbstractRunner":
-    self.start()
+    # Use reference counting to handle nested context manager entries.
+    if getattr(self, "_ref_count", 0) == 0:
+      self.start()
+      self._ref_count = 0
+    self._ref_count += 1
     return self
 
   def __exit__(self, *_) -> None:
-    self.stop()
+    if hasattr(self, "_ref_count"):
+      self._ref_count -= 1
+      if self._ref_count == 0:
+        self.stop()
 
   def _validate_completions(self) -> None:
     """Verifies the /v1/chat/completions endpoint."""
@@ -135,7 +144,9 @@ class AbstractRunner(abc.ABC):
         "max_tokens": 1,
     }
     try:
-      response = requests.post(url, json=payload, timeout=20)
+      response = requests.post(
+          url, json=payload, timeout=_DEFAULT_TIMEOUT_SECONDS
+      )
       response.raise_for_status()
       if "choices" not in response.json():
         raise ValueError("Response missing 'choices' field.")
@@ -155,7 +166,9 @@ class AbstractRunner(abc.ABC):
         ],
     }
     try:
-      response = requests.post(url, json=payload, timeout=20)
+      response = requests.post(
+          url, json=payload, timeout=_DEFAULT_TIMEOUT_SECONDS
+      )
       response.raise_for_status()
       data = response.json()
       choice = data["choices"][0]
