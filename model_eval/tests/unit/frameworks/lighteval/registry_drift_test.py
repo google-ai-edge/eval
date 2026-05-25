@@ -12,7 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Drift tests for the Lighteval registry vs. our tasks.yaml allowlist."""
+"""Registry drift validation for the Lighteval adapter.
+
+Ensures that the task sets and aliases reported via
+`LightEvalFramework.supported_task_ids()` properly include all items explicitly
+allowlisted in the internal `config/tasks.yaml`.
+"""
 
 import os
 from absl.testing import absltest
