@@ -62,7 +62,7 @@ class TestBaseRunner(unittest.TestCase):
             "messages": [{"role": "user", "content": "hi"}],
             "max_tokens": 1,
         },
-        timeout=20,
+        timeout=base._DEFAULT_TIMEOUT_SECONDS,
     )
 
   @mock.patch("model_eval.runners.base.requests.post")
@@ -89,7 +89,7 @@ class TestBaseRunner(unittest.TestCase):
                 {"role": "assistant", "content": "hi"},
             ],
         },
-        timeout=20,
+        timeout=base._DEFAULT_TIMEOUT_SECONDS,
     )
 
   @mock.patch("model_eval.runners.base.requests.post")
@@ -99,6 +99,32 @@ class TestBaseRunner(unittest.TestCase):
     with self.assertRaisesRegex(
         RuntimeError, "Runner failed scoring validation"):
       runner._validate_scoring()
+
+  def test_reentrancy_guard(self):
+    runner = DummyRunner()
+    with mock.patch.object(
+        runner, "start", wraps=runner.start
+    ) as mock_start, mock.patch.object(
+        runner, "stop", wraps=runner.stop
+    ) as mock_stop:
+
+      # Enter recursively
+      with runner:
+        self.assertEqual(runner._ref_count, 1)
+        with runner:
+          self.assertEqual(runner._ref_count, 2)
+          # Server should only start once
+          mock_start.assert_called_once()
+          mock_stop.assert_not_called()
+
+        # After inner exit, server should still be running (ref_count = 1)
+        self.assertEqual(runner._ref_count, 1)
+        mock_stop.assert_not_called()
+
+      # After outer exit, server should stop (ref_count = 0)
+      self.assertEqual(runner._ref_count, 0)
+      mock_start.assert_called_once()
+      mock_stop.assert_called_once()
 
 
 if __name__ == "__main__":

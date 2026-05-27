@@ -45,7 +45,7 @@ def _resolve_model_path(path: str) -> str:  # pylint: disable=g-doc-args
     return path
 
   parts = path.split("/")
-  if len(parts) >= 3:
+  if len(parts) >= 3 and not path.startswith("/"):
     # Repo ID is the first two parts, i.e. "org/repo".
     repo_id = "/".join(parts[:2])
     # The model path within the repo can be anything.
@@ -209,7 +209,9 @@ class LiteRtLmRunner(base.AbstractRunner):
 
     self._server_thread = threading.Thread(target=self._server.run, daemon=True)
     self._server_thread.start()
-    _litert_lm_server.wait_for_server(self.server_url)
+    _litert_lm_server.wait_for_server(
+        self.server_url, timeout=base._DEFAULT_TIMEOUT_SECONDS
+    )
 
     if (
         self.capabilities.text_generation
