@@ -57,6 +57,13 @@ class _ChatRequest(pydantic.BaseModel):
   # Applied server-side after send_message() returns;
   # truncates at earliest matching stop sequence.
   stop: list[str] | str | None = None
+  # The limit on tokens produced after the prompt. Lighteval treats `max_tokens`
+  # and `max_completion_tokens` as interchangeable aliases.
+  # Accepted on the wire so that pydantic doesn't reject lighteval/litellm
+  # requests, but NOT enforced. The underlying litert_lm Conversation API
+  # exposes no per-call token-budget hook.
+  max_tokens: int | None = None
+  max_completion_tokens: int | None = None
 
 
 def _to_litert_lm_message(msg: _ChatMessage) -> dict[str, Any]:
@@ -156,6 +163,13 @@ def build_app(engine: Any, config: base.RunnerConfig) -> fastapi.FastAPI:
 
     This endpoint follows the OpenAI chat completions API schema.
 
+    All generation goes through the higher-level `Conversation` API
+    (`engine.create_conversation` + `conv.send_message`) — text and
+    multimodal alike. The `Conversation` API does not currently expose a
+    per-request token-budget hook; `_ChatRequest.max_tokens` is accepted on the
+    wire but NOT ENFORCED by this endpoint. Long-form generation may run to
+    EOS or to the engine's `max_num_tokens` ceiling.
+
     Args:
         req: The chat completion request containing the model, messages, and
           other generation parameters.
@@ -226,6 +240,39 @@ def build_app(engine: Any, config: base.RunnerConfig) -> fastapi.FastAPI:
   return app
 
 
+def _render_chat_score_context(
+    engine: Any, context_msgs: list[dict[str, Any]]
+) -> str:
+  """Renders a chat-score context using the engine's conversation API.
+
+  Calling `conversation.render_message_to_string` per message and
+  concatenating produces structurally invalid prompts: the engine's template
+  treats every render as if it were the final message in the conversation
+  and appends `<|im_end|>` + generation-prompt boilerplate after each one.
+  Concatenating multiple such renders duplicates the generation prompt and
+  loses earlier-turn structure.
+
+  Instead, preload all-but-the-last message via `create_conversation
+  (messages=...)` and render only the final message — the engine then
+  templates the full conversation in one shot with the generation prompt at
+  the end.
+
+  Args:
+      engine: The LiteRT LM engine instance.
+      context_msgs: The conversation context (excluding the continuation that
+        will be scored). Must contain at least one message.
+
+  Returns:
+      The rendered context string, ending with the model's
+      add-generation-prompt suffix.
+  """
+  if not context_msgs:
+    return ""
+
+  with engine.create_conversation(messages=context_msgs[:-1]) as conversation:
+    return conversation.render_message_to_string(context_msgs[-1])
+
+
 def _chat_score(
     engine: Any,
     context_msgs: list[dict[str, Any]],
@@ -256,11 +303,8 @@ def _chat_score(
       overall sequence score, token-level logprobs, and whether the output
       follows a greedy decoding path.
   """
-  # Applies chat template via the engine's conversation API.
-  with engine.create_conversation() as conversation:
-    context_str = "".join(
-        conversation.render_message_to_string(m) for m in context_msgs
-    )
+  # Render the full conversation through the engine's chat template.
+  context_str = _render_chat_score_context(engine, context_msgs)
   # The chat template is applied by the conversation API, so we disable it here.
   with engine.create_session(apply_prompt_template=False) as session:
     session.run_prefill([context_str])
