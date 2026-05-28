@@ -215,7 +215,7 @@ def _execute_eval(
 )
 @click.option(
     "--batch-size",
-    default=None,
+    default=1,
     type=int,
     help="Evaluation batch size.",
 )
