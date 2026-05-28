@@ -14,44 +14,16 @@
 
 """Unit tests for chat score lighteval model."""
 
-import sys
-from typing import Any
 from unittest import mock
 from absl.testing import absltest
+import pytest
 
+pytest.importorskip(
+    "lighteval",
+    reason='install via `pip install -e ".[lighteval]"` to run lighteval tests',
+)
 
-# Stub lighteval classes for the model test.
-class MockLiteLLMClient:
-
-  def __init__(self, config: Any):
-    self.model_name = getattr(config, "model_name", "test-model")
-
-
-class MockModelResponse:
-
-  def __init__(self, logprobs=None, argmax_logits_eq_gold=None):
-    self.logprobs = logprobs
-    self.argmax_logits_eq_gold = argmax_logits_eq_gold
-
-
-lighteval_mock = mock.MagicMock()
-lighteval_mock.LiteLLMClient = MockLiteLLMClient
-lighteval_mock.ModelResponse = MockModelResponse
-lighteval_mock.model_output.ModelResponse = MockModelResponse
-lighteval_mock.litellm_model = lighteval_mock
-
-sys.modules["lighteval"] = lighteval_mock
-sys.modules["lighteval.models"] = lighteval_mock
-sys.modules["lighteval.models.endpoints"] = lighteval_mock
-sys.modules["lighteval.models.endpoints.litellm_model"] = lighteval_mock
-sys.modules["lighteval.models.model_output"] = lighteval_mock
-sys.modules["lighteval.pipeline"] = lighteval_mock
-sys.modules["lighteval.tasks"] = lighteval_mock
-sys.modules["lighteval.tasks.registry"] = lighteval_mock
-sys.modules["lighteval.logging"] = lighteval_mock
-sys.modules["lighteval.logging.evaluation_tracker"] = lighteval_mock
-
-from model_eval.frameworks.lighteval import _chat_score_lighteval_model  # pylint: disable=g-import-not-at-top
+from model_eval.frameworks.lighteval import _chat_score_lighteval_model  # pylint: disable=g-import-not-at-top,g-bad-import-order
 
 
 class TestChatScoreLightevalModel(absltest.TestCase):
@@ -72,10 +44,11 @@ class TestChatScoreLightevalModel(absltest.TestCase):
 
     with mock.patch.object(
         _chat_score_lighteval_model.httpx, "Client"
-    ) as mock_httpx_cls:
+    ) as mock_httpx_cls, mock.patch(
+        "lighteval.models.endpoints.litellm_model.SampleCache"
+    ):
       mock_httpx_cls.return_value = mock_client
       model = _chat_score_lighteval_model.ChatScoreLightevalModel(config)
-      model._cache = None
 
       mock_doc = mock.MagicMock()
       mock_doc.query = "hello"
@@ -83,7 +56,7 @@ class TestChatScoreLightevalModel(absltest.TestCase):
       mock_doc.gold_index = 2
 
       res_ll = model.loglikelihood([mock_doc])
-    self.assertEqual(len(res_ll), 1)
+    self.assertLen(res_ll, 1)
     self.assertEqual(res_ll[0].logprobs, [-1.5, -1.5, -1.5])
     self.assertEqual(res_ll[0].argmax_logits_eq_gold, [True, True, True])
     self.assertEqual(mock_client.post.call_count, 3)

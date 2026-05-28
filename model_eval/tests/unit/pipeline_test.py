@@ -16,54 +16,30 @@
 
 import json
 import os
-import sys
 import tempfile
-import unittest
 from unittest import mock
 
+from absl.testing import absltest
+import pytest
 
-# Stub lighteval classes for the pipeline test.
-class MockTransformersModelConfig:
+pytest.importorskip(
+    "lighteval",
+    reason=(
+        'install via `pip install -e ".[lighteval]"` to run pipeline tests'
+        " (the pipeline module transitively imports lighteval)"
+    ),
+)
 
-  def __init__(self, *args, **kwargs):
-    self.__dict__.update(kwargs)
-
-
-class MockPipelineParameters:
-
-  def __init__(self, *args, **kwargs):
-    self.kwargs = kwargs
-    self.__dict__.update(kwargs)
-
-
-lighteval_mock = mock.MagicMock()
-lighteval_mock.TransformersModelConfig = MockTransformersModelConfig
-lighteval_mock.PipelineParameters = MockPipelineParameters
-
-sys.modules["lighteval"] = lighteval_mock
-sys.modules["lighteval.models"] = lighteval_mock
-sys.modules["lighteval.models.custom"] = lighteval_mock
-sys.modules["lighteval.models.custom.custom_model"] = lighteval_mock
-sys.modules["lighteval.models.transformers"] = lighteval_mock
-sys.modules["lighteval.models.transformers.transformers_model"] = lighteval_mock
-sys.modules["lighteval.models.endpoints"] = lighteval_mock
-sys.modules["lighteval.models.endpoints.litellm_model"] = lighteval_mock
-sys.modules["lighteval.models.model_output"] = lighteval_mock
-sys.modules["lighteval.pipeline"] = lighteval_mock
-sys.modules["lighteval.tasks"] = lighteval_mock
-sys.modules["lighteval.tasks.registry"] = lighteval_mock
-sys.modules["lighteval.logging"] = lighteval_mock
-sys.modules["lighteval.logging.evaluation_tracker"] = lighteval_mock
-
-
-from model_eval.api import pipeline  # pylint: disable=g-import-not-at-top
+# pylint: disable=g-import-not-at-top,g-bad-import-order
+from model_eval.api import pipeline
 from model_eval.frameworks import base as framework_base
 from model_eval.runners import base as runner_base
 from model_eval.runners import litert_lm
 import yaml
 
 
-class EvalPipelineTest(unittest.TestCase):
+class EvalPipelineTest(absltest.TestCase):
+
 
   def setUp(self):
     super().setUp()
@@ -337,7 +313,7 @@ class EvalPipelineTest(unittest.TestCase):
     mock_run_pipeline.return_value = mock_res
 
     model = framework_base.NativeModelConfig(
-        model="accelerate", model_args={"pretrained": "gpt2"}
+        model="accelerate", model_args={"model_name": "gpt2"}
     )
     pipe = pipeline.EvalPipeline(
         model=model,
@@ -350,4 +326,5 @@ class EvalPipelineTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-  unittest.main()
+  absltest.main()
+

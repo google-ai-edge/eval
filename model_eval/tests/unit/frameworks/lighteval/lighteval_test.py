@@ -14,82 +14,19 @@
 
 """Unit tests for lighteval adapter."""
 
-import faulthandler
-import sys
-from typing import Any
 from unittest import mock
 from absl.testing import absltest
+import pytest
 
-
-faulthandler.enable()
-
-
-# Mock lighteval modules before importing the framework adapter.
-class MockLiteLLMModelConfig:
-
-  def __init__(self, *args, **kwargs):
-    self.__dict__.update(kwargs)
-
-
-class MockTransformersModelConfig:
-
-  def __init__(self, *args, **kwargs):
-    self.__dict__.update(kwargs)
-
-
-class MockPipelineParameters:
-
-  def __init__(self, *args, launcher_type=None, max_samples=None, **kwargs):
-    self.max_samples = max_samples
-    self.launcher_type = launcher_type
-    self.__dict__.update(kwargs)
-
-
-class MockLiteLLMClient:
-
-  def __init__(self, config: Any, env_config: Any = None):
-    self.model_name = getattr(config, "model_name", "test-model")
-
-
-class MockModelResponse:
-
-  def __init__(self, result=None):
-    self.result = result
-
-
-lighteval_mock = mock.MagicMock()
-lighteval_mock.LiteLLMModelConfig = mock.MagicMock(
-    side_effect=MockLiteLLMModelConfig
+pytest.importorskip(
+    "lighteval",
+    reason='install via `pip install -e ".[lighteval]"` to run lighteval tests',
 )
-lighteval_mock.TransformersModelConfig = mock.MagicMock(
-    side_effect=MockTransformersModelConfig
-)
-lighteval_mock.PipelineParameters = mock.MagicMock(
-    side_effect=MockPipelineParameters
-)
-lighteval_mock.pipeline.PipelineParameters = mock.MagicMock(
-    side_effect=MockPipelineParameters
-)
-lighteval_mock.LiteLLMClient = mock.MagicMock(side_effect=MockLiteLLMClient)
-lighteval_mock.ModelResponse = mock.MagicMock(side_effect=MockModelResponse)
 
-sys.modules["litellm"] = mock.MagicMock()
-sys.modules["lighteval"] = lighteval_mock
-sys.modules["lighteval.models"] = lighteval_mock
-sys.modules["lighteval.models.endpoints"] = lighteval_mock
-sys.modules["lighteval.models.endpoints.litellm_model"] = lighteval_mock
-sys.modules["lighteval.models.transformers"] = lighteval_mock
-sys.modules["lighteval.models.transformers.transformers_model"] = lighteval_mock
-sys.modules["lighteval.models.model_output"] = lighteval_mock
-sys.modules["lighteval.pipeline"] = lighteval_mock
-sys.modules["lighteval.logging"] = lighteval_mock
-sys.modules["lighteval.logging.evaluation_tracker"] = lighteval_mock
-sys.modules["lighteval.tasks"] = lighteval_mock
-sys.modules["lighteval.tasks.registry"] = lighteval_mock
-
-from model_eval.frameworks import base  # pylint: disable=g-import-not-at-top
-from model_eval.frameworks.lighteval import lighteval  # pylint: disable=g-import-not-at-top
-from model_eval.runners import base as runner_base  # pylint: disable=g-import-not-at-top
+# pylint: disable=g-import-not-at-top,g-bad-import-order
+from model_eval.frameworks import base
+from model_eval.frameworks.lighteval import lighteval
+from model_eval.runners import base as runner_base
 
 
 class TestLightEvalAdapter(absltest.TestCase):
