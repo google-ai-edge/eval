@@ -16,8 +16,8 @@
 
 import sys
 from typing import Any
-import unittest
 from unittest import mock
+from absl.testing import absltest
 
 
 # Stub lighteval classes for the model test.
@@ -54,7 +54,7 @@ sys.modules["lighteval.logging.evaluation_tracker"] = lighteval_mock
 from model_eval.frameworks.lighteval import _chat_score_lighteval_model  # pylint: disable=g-import-not-at-top
 
 
-class TestChatScoreLightevalModel(unittest.TestCase):
+class TestChatScoreLightevalModel(absltest.TestCase):
 
   def test_chat_score_model(self):
     mock_client = mock.MagicMock()
@@ -96,4 +96,4 @@ class TestChatScoreLightevalModel(unittest.TestCase):
 
 
 if __name__ == "__main__":
-  unittest.main()
+  absltest.main()

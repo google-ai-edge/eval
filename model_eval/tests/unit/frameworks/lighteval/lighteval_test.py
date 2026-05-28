@@ -17,8 +17,9 @@
 import faulthandler
 import sys
 from typing import Any
-import unittest
 from unittest import mock
+from absl.testing import absltest
+
 
 faulthandler.enable()
 
@@ -91,7 +92,7 @@ from model_eval.frameworks.lighteval import lighteval  # pylint: disable=g-impor
 from model_eval.runners import base as runner_base  # pylint: disable=g-import-not-at-top
 
 
-class TestLightEvalAdapter(unittest.TestCase):
+class TestLightEvalAdapter(absltest.TestCase):
 
   def setUp(self):
     super().setUp()
@@ -240,4 +241,4 @@ class TestLightEvalAdapter(unittest.TestCase):
 
 
 if __name__ == "__main__":
-  unittest.main()
+  absltest.main()

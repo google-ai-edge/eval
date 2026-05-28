@@ -287,10 +287,20 @@ class LightEvalFramework(base.AbstractEvalFramework):
 
   @classmethod
   def supported_task_ids(cls) -> list[str]:
+    """Returns a list of all task IDs supported by Lighteval.
+
+    Note: This method accesses private members (`_task_registry` and
+    `_task_superset_dict`) of the `lighteval.tasks.registry.Registry`
+    class because Lighteval does not provide a public API to retrieve the full
+    list of supported tasks and suite aliases.
+    """
     try:
       registry_obj = lighteval_registry.Registry()
-      return list(getattr(registry_obj, "_task_registry", {}).keys())
-    except ImportError:
+      # Accessing private members is necessary here as no public API exists.
+      concrete = getattr(registry_obj, "_task_registry", {})
+      suites = getattr(registry_obj, "_task_superset_dict", {})
+      return sorted(set(concrete) | set(suites))
+    except (ImportError, AttributeError):
       return []
 
   @classmethod

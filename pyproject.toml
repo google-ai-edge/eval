@@ -63,7 +63,7 @@ dev = [
 # Dependencies specifically for the LightEval framework
 lighteval = [
     "lighteval[litellm]>=0.13",
-    "litellm[caching]>=1.83.7",
+    "litellm[caching]>=1.86.1",
 ]
 
 # Meta-group for a complete local evaluation environment
