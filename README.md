@@ -19,6 +19,7 @@
 - [⚡ Running Evaluations](#-running-evaluations)
   - [LiteRT LM Runners](#🤖-litert-lm-runners)
   - [Direct Native Library Runners](#🚀-direct-native-library-runners-huggingface-etc)
+  - [Lighteval Framework](#🪶-lighteval-framework)
 - [🛠️ Custom Task CUJ](#️-custom-task-cuj)
   - [1. Prepare the Dataset](#1-prepare-the-dataset)
   - [2. Task Definition](#2-task-definition)
@@ -111,6 +112,9 @@ uv pip install "ai-edge-eval[hf]"
 # Install HuggingFace multimodal runner support (includes TorchVision)
 uv pip install "ai-edge-eval[hf-multimodal]"
 
+# Install the Lighteval evaluation framework (alternative to the default lm-eval)
+uv pip install "ai-edge-eval[lighteval]"
+
 # Install everything for local evaluation
 uv pip install "ai-edge-eval[all]"
 ```
@@ -122,6 +126,9 @@ pip install "ai-edge-eval[hf]"
 
 # Install HuggingFace multimodal runner support (includes TorchVision)
 pip install "ai-edge-eval[hf-multimodal]"
+
+# Install the Lighteval evaluation framework (alternative to the default lm-eval)
+pip install "ai-edge-eval[lighteval]"
 
 # Install everything for local evaluation
 pip install "ai-edge-eval[all]"
@@ -215,6 +222,51 @@ ai-edge-eval \
 
 > [!IMPORTANT]
 > For HuggingFace runners, `huggingface/repo` refers to the HuggingFace model ID, such as `Qwen/Qwen2.5-7B-Instruct` or `google/gemma-3-270m`.
+
+### 🪶 Lighteval Framework
+
+`--framework lighteval` is an alternative evaluation framework alongside the default `lm-eval`. Install via `ai-edge-eval[lighteval]` (see [Optional Dependency Groups](#-optional-dependency-groups)).
+
+Supports two runner paths:
+
+- `--runner litert-lm` — scores via the LiteRT-LM server's `/v1/chat/score` endpoint (auto-launched).
+- `--runner accelerate` — scores natively via lighteval's HuggingFace/Accelerate backend.
+
+Supported tasks (from `model_eval/config/tasks.yaml`): `mmlu`, `arc:easy`, `arc:challenge`, `winogrande`, `ifeval`, `bigbench_hard`.
+
+#### LiteRT-LM Runner
+
+```bash
+ai-edge-eval \
+      --runner litert-lm \
+      --model-path litert-community/SmolLM2-360M-Instruct/SmolLM2_360M_instruct.litertlm \
+      --device cpu \
+      --tasks arc:easy \
+      --framework lighteval \
+      --batch-size 1 \
+      --limit 20 \
+      --output-dir your_result_directory
+```
+
+#### Accelerate Runner (HuggingFace native)
+
+```bash
+ai-edge-eval \
+      --runner accelerate \
+      --model-path HuggingFaceTB/SmolLM2-360M-Instruct \
+      --device cpu \
+      --tasks arc:easy \
+      --framework lighteval \
+      --batch-size 1 \
+      --limit 20 \
+      --output-dir your_result_directory
+```
+
+> [!IMPORTANT]
+> Always pin `--batch-size 1` when using `--framework lighteval`. Without it, lighteval auto-picks the largest batch that fits, which can OOM on the LiteRT-LM runner and produces padding-dependent results across runs. We recommend using a small `--limit` (e.g., `--limit 1-5`) for generation and sampling tasks (`ifeval`, `bigbench_hard`) to perform quick smoke checks. This allows you to verify task configuration and gauge the overall evaluation size (including token generation volume) before launching comprehensive runs.
+
+> [!NOTE]
+> Some known cross-path differences when running the same model under both lighteval runners: (1) the accelerate path injects the tokenizer's default system message; the litert-lm path doesn't — prompts differ on tasks without an explicit system message. (2) The accelerate path is currently non-deterministic across process invocations (upstream lighteval issue); the litert-lm path is byte-deterministic.
 
 ---
 
