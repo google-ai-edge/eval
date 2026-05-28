@@ -308,6 +308,151 @@ class TestLiteRTLMServer(unittest.TestCase):
     # Decoding step should be completely skipped!
     mock_session.run_decode.assert_not_called()
 
+  def test_chat_completions_accepts_max_tokens_without_error(self):
+    """Schema-acceptance regression test.
+
+    The underlying `Conversation` API has no per-call token budget hook,
+    so `max_tokens` is NOT enforced by this endpoint. But the wire format
+    must still be valid: lighteval / litellm send `max_tokens` (and the
+    newer-spec alias `max_completion_tokens`) on every generation request, and
+    pydantic must accept both without 422'ing the request. This test guards
+    against a future schema change that drops those fields.
+    """
+    mock_conv = mock.MagicMock()
+    self.mock_engine.create_conversation.return_value.__enter__.return_value = (
+        mock_conv
+    )
+    mock_conv.send_message.return_value = {
+        "role": "model",
+        "content": [{"type": "text", "text": "ok"}],
+    }
+    for body in (
+        {
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 128,
+        },
+        {
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_completion_tokens": 128,
+        },
+        {
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "max_tokens": 64,
+            "max_completion_tokens": 128,
+        },
+    ):
+      response = self.client.post("/v1/chat/completions", json=body)
+      self.assertEqual(
+          response.status_code,
+          200,
+          msg=(
+              f"request body {body!r} was rejected (status "
+              f"{response.status_code}). pydantic must accept "
+              "max_tokens and max_completion_tokens even though the "
+              "endpoint does not enforce them."
+          ),
+      )
+
+
+class TestRenderChatScoreContext(unittest.TestCase):
+  """Regression tests for `_render_chat_score_context`."""
+
+  def _build_engine_mock(self, render_return="rendered"):
+    engine = mock.MagicMock()
+    conv = mock.MagicMock()
+    engine.create_conversation.return_value.__enter__.return_value = conv
+    conv.render_message_to_string.return_value = render_return
+    return engine, conv
+
+  def test_empty_context_returns_empty_string(self):
+    engine, _ = self._build_engine_mock()
+    out = _litert_lm_server._render_chat_score_context(engine, [])
+    self.assertEqual(out, "")
+    engine.create_conversation.assert_not_called()
+
+  def test_single_message_preloads_empty_renders_one(self):
+    """One-message context: preload [] and render that single message."""
+    engine, conv = self._build_engine_mock()
+    msg = {"role": "user", "content": "hello"}
+    out = _litert_lm_server._render_chat_score_context(engine, [msg])
+    self.assertEqual(out, "rendered")
+    # All-but-last is empty when there's only one message.
+    engine.create_conversation.assert_called_once_with(messages=[])
+    conv.render_message_to_string.assert_called_once_with(msg)
+
+  def test_multi_message_preloads_all_but_last(self):
+    """Three-message context: preload [m1, m2, m3] and render m4."""
+    engine, conv = self._build_engine_mock()
+    m1 = {"role": "system", "content": "sys"}
+    m2 = {"role": "user", "content": "hi"}
+    m3 = {"role": "assistant", "content": "hello"}
+    m4 = {"role": "user", "content": "q2"}
+    _litert_lm_server._render_chat_score_context(engine, [m1, m2, m3, m4])
+    call_kwargs = engine.create_conversation.call_args.kwargs
+    preloaded = call_kwargs["messages"]
+    self.assertEqual(len(preloaded), 3)
+    self.assertEqual(preloaded[0], {"role": "system", "content": "sys"})
+    self.assertEqual(preloaded[1], {"role": "user", "content": "hi"})
+    self.assertEqual(preloaded[2], {"role": "assistant", "content": "hello"})
+    rendered = conv.render_message_to_string.call_args.args[0]
+    self.assertEqual(rendered, {"role": "user", "content": "q2"})
+
+  def test_messages_passed_verbatim(self):
+    """Adapter must not rewrite role names; the template is the right layer."""
+    engine, conv = self._build_engine_mock()
+    msgs = [
+        {"role": "user", "content": "q1"},
+        {"role": "assistant", "content": "a1"},
+        {"role": "user", "content": "q2"},
+    ]
+    _litert_lm_server._render_chat_score_context(engine, msgs)
+    preloaded = engine.create_conversation.call_args.kwargs["messages"]
+    self.assertEqual(
+        preloaded,
+        [
+            {"role": "user", "content": "q1"},
+            {"role": "assistant", "content": "a1"},
+        ],
+        msg="role names must reach the engine unchanged",
+    )
+
+  def test_input_is_not_mutated(self):
+    """Caller's message dicts must not be modified in-place."""
+    engine, _ = self._build_engine_mock()
+    msg_in = {"role": "assistant", "content": "hi"}
+    msgs = [msg_in, {"role": "user", "content": "q"}]
+    _litert_lm_server._render_chat_score_context(engine, msgs)
+    self.assertEqual(
+        msg_in,
+        {"role": "assistant", "content": "hi"},
+        msg="caller's dict was mutated",
+    )
+
+  def test_render_per_message_is_not_called(self):
+    """Smoke check: the broken pattern (render per message + concat) is gone.
+
+    If a future refactor re-introduces `[render(m) for m in msgs]`, this
+    will fail by detecting more than one render call.
+    """
+    engine, conv = self._build_engine_mock()
+    msgs = [
+        {"role": "user", "content": "q1"},
+        {"role": "assistant", "content": "a1"},
+        {"role": "user", "content": "q2"},
+    ]
+    _litert_lm_server._render_chat_score_context(engine, msgs)
+    self.assertEqual(
+        conv.render_message_to_string.call_count,
+        1,
+        msg=(
+            "render_message_to_string was called more than once — the"
+            " per-message+concat pattern appears to have been reintroduced."
+        ),
+    )
+
 
 if __name__ == "__main__":
   unittest.main()
