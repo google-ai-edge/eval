@@ -325,6 +325,203 @@ class EvalPipelineTest(absltest.TestCase):
     pipe.run()
     mock_run_pipeline.assert_called_once()
 
+  @mock.patch("model_eval.api.pipeline._load_task_allowlist")
+  @mock.patch(
+      "model_eval.frameworks.lm_eval.lm_eval.LmEvalFramework.evaluate_native"
+  )
+  def test_pipeline_dispatch_lm_eval_native(
+      self, mock_evaluate_native, mock_load
+  ):
+    mock_load.return_value = ["example_task"]
+    mock_res = mock.MagicMock()
+    mock_res.aggregated_metrics = {}
+    mock_res.per_sample_outputs = {}
+    mock_evaluate_native.return_value = mock_res
+
+    model = framework_base.NativeModelConfig(
+        model="hf", model_args={"pretrained": "gpt2"}
+    )
+    pipe = pipeline.EvalPipeline(
+        model=model,
+        framework=framework_base.FrameworkType.LM_EVAL,
+        tasks=("example_task",),
+        output_dir=self.output_dir,
+    )
+    pipe.run()
+    mock_evaluate_native.assert_called_once()
+
+  @mock.patch(
+      "model_eval.custom_tasks.registry.TaskRegistry.global_registry"
+  )
+  @mock.patch(
+      "model_eval.api.pipeline._load_runner_allowlist"
+  )
+  def test_custom_framework_tasks_allowlist(
+      self, mock_load_runner, mock_global_registry
+  ):
+    mock_load_runner.return_value = ["native"]
+    mock_registry = mock.MagicMock()
+    mock_registry.get_all_tasks.return_value = ["custom_t1"]
+    mock_global_registry.return_value = mock_registry
+
+    p = pipeline.EvalPipeline(
+        model="test_model",
+        tasks=("custom_t1",),
+        framework=framework_base.FrameworkType.CUSTOM,
+        output_dir=self.output_dir,
+    )
+    self.assertEqual(p._tasks, ["custom_t1"])
+
+    with self.assertRaisesRegex(ValueError, "Tasks not in allowlist"):
+      pipeline.EvalPipeline(
+          model="test_model",
+          tasks=("custom_t2",),
+          framework=framework_base.FrameworkType.CUSTOM,
+          output_dir=self.output_dir,
+      )
+
+  @mock.patch("model_eval.api.pipeline._load_task_allowlist")
+  @mock.patch("model_eval.runners.registry.create_runner")
+  @mock.patch("model_eval.frameworks.registry.get_framework")
+  def test_run_produces_jsonl_files_empty_per_sample(
+      self, mock_get_framework, mock_create_runner, mock_load
+  ):
+    mock_load.return_value = ["mmlu"]
+    mock_runner = mock.MagicMock()
+    mock_create_runner.return_value = mock_runner
+    mock_framework = mock.MagicMock()
+    mock_get_framework.return_value = mock_framework
+
+    mock_results = framework_base.EvalResults(
+        framework_type="lm-eval",
+        aggregated_metrics={"mmlu": {"acc": 0.5}},
+        per_sample_outputs={},
+    )
+    mock_framework.evaluate.return_value = mock_results
+
+    p = pipeline.EvalPipeline(
+        model=litert_lm.LiteRtLmRunner.Config(
+            runner_type="litert-lm",
+            model_path="test_model",
+        ),
+        tasks=("mmlu",),
+        framework=framework_base.FrameworkType.LM_EVAL,
+        output_dir=self.output_dir,
+    )
+
+    returned_results = p.run()
+    self.assertEqual(returned_results, mock_results)
+
+    # Check files created - metrics.jsonl only.
+    files = os.listdir(self.output_dir)
+    metric_files = [f for f in files if f.endswith("_metrics.jsonl")]
+    sample_files = [f for f in files if f.endswith("_samples.jsonl")]
+
+    self.assertEqual(len(metric_files), 1)
+    self.assertEqual(len(sample_files), 0)
+
+
+  @mock.patch("model_eval.api.pipeline._load_task_allowlist")
+  @mock.patch("model_eval.frameworks.registry.get_framework")
+  def test_run_native_produces_jsonl_files(
+      self, mock_get_framework, mock_load
+  ):
+    """Verifies that running the native path produces metrics and samples JSONL files."""
+    mock_load.return_value = ["example_task"]
+    mock_framework = mock.MagicMock()
+    mock_get_framework.return_value = mock_framework
+
+    mock_results = framework_base.EvalResults(
+        framework_type="lm-eval",
+        aggregated_metrics={"example_task": {"acc": 0.8}},
+        per_sample_outputs={
+            "example_task": [{"doc": "test native", "target": "B", "res": "B"}]
+        },
+    )
+    mock_framework.evaluate_native.return_value = mock_results
+
+    model = framework_base.NativeModelConfig(
+        model="hf", model_args={"pretrained": "gpt2"}
+    )
+    p = pipeline.EvalPipeline(
+        model=model,
+        tasks=("example_task",),
+        framework=framework_base.FrameworkType.LM_EVAL,
+        output_dir=self.output_dir,
+    )
+
+    returned_results = p.run()
+    self.assertEqual(returned_results, mock_results)
+    mock_framework.evaluate_native.assert_called_once_with(
+        model,
+        ["example_task"],
+        limit=None,
+        batch_size=None,
+        eval_args={},
+    )
+
+    files = os.listdir(self.output_dir)
+    metric_files = [f for f in files if f.endswith("_metrics.jsonl")]
+    sample_files = [f for f in files if f.endswith("_samples.jsonl")]
+
+    self.assertEqual(len(metric_files), 1)
+    self.assertEqual(len(sample_files), 1)
+
+    with open(os.path.join(self.output_dir, metric_files[0]), "r") as f:
+      lines = f.readlines()
+      self.assertEqual(len(lines), 1)
+      data = json.loads(lines[0])
+      self.assertEqual(data["task"], "example_task")
+      self.assertEqual(data["metric"], "acc")
+      self.assertEqual(data["value"], 0.8)
+
+    with open(os.path.join(self.output_dir, sample_files[0]), "r") as f:
+      lines = f.readlines()
+      self.assertEqual(len(lines), 1)
+      data = json.loads(lines[0])
+      self.assertEqual(data["task"], "example_task")
+      self.assertEqual(data["doc"], "test native")
+      self.assertEqual(data["res"], "B")
+
+  @mock.patch(
+      "model_eval.api.pipeline._load_runner_allowlist"
+  )
+  @mock.patch("model_eval.api.pipeline._load_task_allowlist")
+  def test_runner_resolution_falls_back_to_native(
+      self, mock_load_task, mock_load_runner
+  ):
+    """Verifies runner resolution when model has neither runner_type nor model attributes."""
+    mock_load_task.return_value = ["mmlu"]
+    mock_load_runner.return_value = ["native"]
+
+    class GenericModel:
+      pass
+
+    p = pipeline.EvalPipeline(
+        model=GenericModel(),
+        tasks=("mmlu",),
+        framework=framework_base.FrameworkType.LM_EVAL,
+        output_dir=self.output_dir,
+    )
+    self.assertEqual(p._tasks, ["mmlu"])
+
+  @mock.patch(
+      "model_eval.api.pipeline._load_runner_allowlist"
+  )
+  @mock.patch("model_eval.api.pipeline._load_task_allowlist")
+  def test_constructor_empty_tasks(self, mock_load_task, mock_load_runner):
+    """Verifies that the pipeline can be initialized with empty tasks list."""
+    mock_load_task.return_value = ["mmlu"]
+    mock_load_runner.return_value = ["native"]
+
+    p = pipeline.EvalPipeline(
+        model="native",
+        tasks=(),
+        framework=framework_base.FrameworkType.LM_EVAL,
+        output_dir=self.output_dir,
+    )
+    self.assertEqual(p._tasks, [])
+
 
 if __name__ == "__main__":
   absltest.main()

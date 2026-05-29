@@ -14,9 +14,14 @@
 
 """Registry for framework implementations."""
 
+import importlib
 from model_eval.frameworks import base
 
 _REGISTRY: dict[str, type[base.AbstractEvalFramework]] = {}
+
+_LAZY_IMPORTS = {
+    "lighteval": "model_eval.frameworks.lighteval",
+}
 
 
 def register_framework(name: base.FrameworkType | str):
@@ -30,7 +35,7 @@ def register_framework(name: base.FrameworkType | str):
   """
 
   def decorator(cls: type[base.AbstractEvalFramework]):
-    _REGISTRY[name] = cls
+    _REGISTRY[str(name)] = cls
     return cls
 
   return decorator
@@ -48,6 +53,10 @@ def get_framework(name: base.FrameworkType | str) -> base.AbstractEvalFramework:
   Returns:
       An instantiated AbstractEvalFramework framework.
   """
-  if name not in _REGISTRY:
+  name_str = str(name)
+  if name_str not in _REGISTRY and name_str in _LAZY_IMPORTS:
+    importlib.import_module(_LAZY_IMPORTS[name_str])
+
+  if name_str not in _REGISTRY:
     raise ValueError(f"Framework '{name}' not found in registry.")
-  return _REGISTRY[name]()  # type: ignore
+  return _REGISTRY[name_str]()  # type: ignore

@@ -29,9 +29,8 @@ from model_eval.runners import registry as runner_registry
 
 import yaml
 
-# Import frameworks and runners to ensure they are registered.
+# Import core frameworks and runners to ensure they are registered by default.
 import model_eval.frameworks.custom  # pylint: disable=unused-import,g-bad-import-order,g-import-not-at-top
-import model_eval.frameworks.lighteval  # pylint: disable=unused-import,g-bad-import-order,g-import-not-at-top
 import model_eval.frameworks.lm_eval  # pylint: disable=unused-import,g-bad-import-order,g-import-not-at-top
 import model_eval.runners.litert_lm  # pylint: disable=unused-import,g-bad-import-order,g-import-not-at-top
 
