@@ -156,6 +156,59 @@ class TestLiteRtLmRunner(unittest.TestCase):
     )
     runner.stop()
 
+  @mock.patch("model_eval.runners.base.requests.post")
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.threading.Thread"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.uvicorn.Server"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.uvicorn.Config"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm._litert_lm_server.build_app"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm._litert_lm_server.wait_for_server"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.Engine"
+  )
+  def test_initialization_with_speculative_decoding(
+      self,
+      mock_engine,
+      mock_wait_for_server,
+      mock_build_app,
+      mock_uvicorn_config,
+      mock_uvicorn_server,
+      mock_thread,
+      mock_post,
+  ):
+    mock_post.return_value.json.return_value = {
+        "choices": [{"score": 0.9, "logprobs": []}]
+    }
+    config = litert_lm.LiteRtLmRunner.Config(
+        runner_type="litert-lm",
+        model_path="/path/to/model",
+        model_name="my-test-model",
+        backend="cpu",
+        enable_speculative_decoding=True,
+    )
+    runner = litert_lm.LiteRtLmRunner(config)
+    with mock.patch("os.path.exists", return_value=True):
+      runner.start()
+
+    # Verify Engine was initialized correctly with enable_speculative_decoding.
+    mock_engine.assert_called_once_with(
+        "/path/to/model",
+        backend=litert_lm._resolve_backend(litert_lm.litert_lm.Backend.CPU),
+        max_num_tokens=4096,
+        enable_speculative_decoding=True,
+    )
+    runner.stop()
+
+
   def test_clamp_log_severity(self):
     self.assertEqual(
         litert_lm._clamp_log_severity(-5), litert_lm.litert_lm.LogSeverity(0)

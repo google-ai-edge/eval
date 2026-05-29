@@ -123,6 +123,8 @@ class LiteRtLmRunner(base.AbstractRunner):
     audio_backend: str | None = None
     # Maximum number of tokens for KV cache.
     max_num_tokens: int = 4096
+    # Whether to enable speculative decoding.
+    enable_speculative_decoding: bool | None = None
     # Host for the runner's server.
     host: str = "127.0.0.1"
     # Port for the runner's server.
@@ -185,6 +187,10 @@ class LiteRtLmRunner(base.AbstractRunner):
     if self._config.audio_backend:
       engine_kwargs["audio_backend"] = _parse_backend(
           self._config.audio_backend
+      )
+    if self._config.enable_speculative_decoding is not None:
+      engine_kwargs["enable_speculative_decoding"] = (
+          self._config.enable_speculative_decoding
       )
 
     # Resolve the model path (download from HuggingFace if necessary).
