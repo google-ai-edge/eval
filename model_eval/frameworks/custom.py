@@ -67,6 +67,7 @@ def _apply_samples(
   Returns:
       The filtered dataset rows.
   """
+
   if not isinstance(samples_val, (dict, str, list)):
     raise ValueError(
         "Invalid type for samples: expected dict, str, or list, got"
@@ -97,6 +98,7 @@ class CustomFramework(base.AbstractEvalFramework):
       runner: runners_base.AbstractRunner,
       tasks: list[str],
       limit: int | float | None = None,
+      sample_range: tuple[int, int] | None = None,
       batch_size: int | None = None,
       eval_args: dict[str, Any] | None = None,
   ) -> base.EvalResults:
@@ -106,20 +108,31 @@ class CustomFramework(base.AbstractEvalFramework):
       runner: The target runner implementation responsible for server inference.
       tasks: A list of unique task names to look up and evaluate.
       limit: Optional limit on number of samples per task to generate.
+      sample_range: Optional range of samples to evaluate.
       batch_size: Evaluation batch size, used for conflict checks/parity.
       eval_args: Additional evaluation configurations.
 
     Raises:
-      ValueError: If both 'limit' and 'samples' are provided.
+      ValueError: If conflicting limit/sample options are provided.
 
     Returns:
       An EvalResults instance containing all aggregated task metrics and
       outputs. The per-sample outputs contain the keys 'input', 'prediction',
       and 'ground_truth'.
     """
-    eval_params = self._from_unified_eval_args(limit, batch_size, eval_args)
+    eval_params = self._from_unified_eval_args(
+        limit, sample_range, batch_size, eval_args
+    )
 
     samples = eval_params.eval_args.pop("samples", None)
+    if eval_params.limit is not None and eval_params.sample_range is not None:
+      raise ValueError(
+          "Only one of 'limit' or 'sample_range' can be set, not both."
+      )
+    if eval_params.sample_range is not None and samples is not None:
+      raise ValueError(
+          "Only one of 'sample_range' or 'samples' can be set, not both."
+      )
     if eval_params.limit is not None and samples is not None:
       raise ValueError("Only one of 'limit' or 'samples' can be set, not both.")
 
@@ -130,7 +143,12 @@ class CustomFramework(base.AbstractEvalFramework):
       for name in tasks:
         task = reg.get_task(name)
         all_results[name], all_samples[name] = self._run_task(
-            runner, task, http_client, limit=eval_params.limit, samples=samples
+            runner,
+            task,
+            http_client,
+            limit=eval_params.limit,
+            sample_range=eval_params.sample_range,
+            samples=samples,
         )
     return base.EvalResults(
         framework_type="custom",
@@ -146,6 +164,7 @@ class CustomFramework(base.AbstractEvalFramework):
       http_client: httpx.Client,
       *,
       limit: int | float | None = None,
+      sample_range: tuple[int, int] | None = None,
       samples: Any = None,
   ) -> tuple[dict[str, float], list[dict[str, Any]]]:
     """Executes a single custom evaluation task.
@@ -158,10 +177,11 @@ class CustomFramework(base.AbstractEvalFramework):
       task: The CustomTask instance defining the dataset and metric hooks.
       http_client: Explicit httpx client instance to use for API calls.
       limit: Optional limit on number of samples per task to generate.
+      sample_range: Optional range of samples to evaluate.
       samples: Optional explicit sample indices or dictionary map.
 
     Raises:
-      ValueError: If both 'limit' and 'samples' are provided.
+      ValueError: If conflicting limit/sample options are provided.
 
     Returns:
       A tuple containing the dict of aggregated metrics and a list of per-sample
@@ -169,16 +189,23 @@ class CustomFramework(base.AbstractEvalFramework):
       input messages), 'prediction' (the generated text), and 'ground_truth'
       (the expected output).
     """
+    if limit is not None and sample_range is not None:
+      raise ValueError(
+          "Only one of 'limit' or 'sample_range' can be set, not both."
+      )
+    if sample_range is not None and samples is not None:
+      raise ValueError(
+          "Only one of 'sample_range' or 'samples' can be set, not both."
+      )
     if limit is not None and samples is not None:
       raise ValueError("Only one of 'limit' or 'samples' can be set, not both.")
 
-    # Load entire dataset lazily into an initial list buffer.
-    rows: list[tasks_base.DatasetRow] = list(
-        loaders.load_dataset(task.dataset)
-    )
+    if sample_range is not None:
+      samples = f"{sample_range[0]}-{sample_range[1]}"
 
-    # Apply integer or float 'limit' bound to constrain the total rows
-    # processed.
+    # Load entire dataset lazily into an initial list buffer.
+    rows: list[tasks_base.DatasetRow] = list(loaders.load_dataset(task.dataset))
+
     if limit:
       rows = _apply_limit(rows, limit)
 
@@ -200,7 +227,8 @@ class CustomFramework(base.AbstractEvalFramework):
 
       # Generate the prediction.
       pred = self._generate(
-          runner, input_msgs, task.generation_config, http_client)
+          runner, input_msgs, task.generation_config, http_client
+      )
 
       # Populate the lists required for metric calculation and output logging.
       predictions.append(pred)

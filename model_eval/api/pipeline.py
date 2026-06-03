@@ -111,6 +111,7 @@ class EvalPipeline:
       framework: framework_base.FrameworkType = framework_base.FrameworkType.LM_EVAL,
       tasks: tuple[str, ...] = (),
       limit: int | float | None = None,
+      sample_range: tuple[int, int] | None = None,
       batch_size: int | None = None,
       output_dir: str = "results/",
       task_config: str | None = None,
@@ -125,6 +126,8 @@ class EvalPipeline:
         framework: The target evaluation framework to trigger (e.g., 'lm-eval').
         tasks: Specific benchmark task names to evaluate on.
         limit: Maximum samples or fraction per task.
+        sample_range: Range of samples to evaluate, space-separated (e.g., (10,
+          20)).
         batch_size: Evaluation batch size.
         output_dir: Directory path to persist metrics and samples.
         task_config: Optional path to a custom tasks.yaml allowlist.
@@ -152,6 +155,7 @@ class EvalPipeline:
 
     self._tasks = list(tasks)
     self._limit = limit
+    self._sample_range = sample_range
     self._batch_size = batch_size
     self._output_dir = pathlib.Path(output_dir)
     self._output_dir.mkdir(parents=True, exist_ok=True)
@@ -161,6 +165,11 @@ class EvalPipeline:
 
   def _validate(self) -> None:
     """Validates pipeline constraints against native and custom runner execution paths."""
+    if self._limit is not None and self._sample_range is not None:
+      raise ValueError(
+          "Conflicting options: 'limit' and 'sample_range' cannot be used"
+          " together."
+      )
     if isinstance(self._model, framework_base.NativeModelConfig):
       if self._framework == framework_base.FrameworkType.CUSTOM:
         raise ValueError(
@@ -198,15 +207,29 @@ class EvalPipeline:
 
     if results.per_sample_outputs:
       samples_path = self._output_dir / f"run_{ts}_samples.jsonl"
-      limit = self._limit
-      sys.stdout.write(
-          f"\nWriting {min(limit, sys.maxsize) if limit else 'all'} samples per"
-          " task to disk...\n"
-      )
+      if self._sample_range:
+        start, end = self._sample_range
+        range_str = f"{end - start + 1} samples (index range: {start} to {end})"
+        offset = start
+      elif self._limit:
+        range_str = (
+            f"{self._limit} samples"
+            if isinstance(self._limit, int)
+            else f"{self._limit*100:.2f}% of samples"
+        )
+        offset = 0
+      else:
+        range_str = "all samples"
+        offset = 0
+      sys.stdout.write(f"\nWriting {range_str} per task to disk...\n")
       with open(samples_path, "w", encoding="utf-8") as f:
         for task_name, samples in results.per_sample_outputs.items():
-          for sample in samples:
-            sample_out = {"task": task_name, **sample}
+          for idx, sample in enumerate(samples):
+            sample_out = {
+                "task": task_name,
+                "sample_index": offset + idx,
+                **sample,
+            }
             f.write(json.dumps(sample_out) + "\n")
       print(f"Saved samples to {samples_path}")
 
@@ -220,9 +243,10 @@ class EvalPipeline:
     framework = framework_registry.get_framework(self._framework)
     with runner:
       results = framework.evaluate(
-          runner,
-          self._tasks,
+          runner=runner,
+          tasks=self._tasks,
           limit=self._limit,
+          sample_range=self._sample_range,
           batch_size=self._batch_size,
           eval_args=self._eval_args,
       )
@@ -234,9 +258,10 @@ class EvalPipeline:
     model = cast(framework_base.NativeModelConfig, self._model)
     framework = framework_registry.get_framework(self._framework)
     results = framework.evaluate_native(
-        model,
-        self._tasks,
+        model_config=model,
+        tasks=self._tasks,
         limit=self._limit,
+        sample_range=self._sample_range,
         batch_size=self._batch_size,
         eval_args=self._eval_args,
     )

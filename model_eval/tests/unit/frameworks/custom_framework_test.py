@@ -64,11 +64,6 @@ class CustomFrameworkTest(absltest.TestCase):
     )
     self.assertEqual(pred_text, "generated content")
 
-  def test_apply_limit(self):
-    rows = [{"id": i} for i in range(10)]
-    self.assertEqual(custom._apply_limit(rows, 3), rows[:3])
-    self.assertEqual(custom._apply_limit(rows, 0.5), rows[:5])
-
   def test_apply_samples(self):
     rows = [{"id": i} for i in range(5)]
     # Test dict mapping for specific task.
@@ -118,33 +113,36 @@ class CustomFrameworkTest(absltest.TestCase):
     )
     self.assertEqual(pred_text, "yes")
 
-  def test_evaluate_raises_value_error_on_both_limit_and_samples(self):
+  def test_evaluate_raises_value_error_on_both_sample_range_and_samples(self):
     framework = custom.CustomFramework()
     runner = mock.MagicMock()
     with self.assertRaisesRegex(
-        ValueError, "Only one of 'limit' or 'samples' can be set, not both."
+        ValueError,
+        "Only one of 'sample_range' or 'samples' can be set, not both.",
     ):
       framework.evaluate(
-          runner, tasks=["foo"], limit=10, eval_args={"samples": "0-5"}
+          runner,
+          tasks=["foo"],
+          sample_range=(0, 10),
+          eval_args={"samples": "0-5"},
       )
 
-  def test_run_task_raises_value_error_on_both_limit_and_samples(self):
+  def test_run_task_raises_value_error_on_both_sample_range_and_samples(self):
     framework = custom.CustomFramework()
     runner = mock.MagicMock()
     task = mock.MagicMock()
     mock_client = mock.MagicMock()
     with self.assertRaisesRegex(
-        ValueError, "Only one of 'limit' or 'samples' can be set, not both."
+        ValueError,
+        "Only one of 'sample_range' or 'samples' can be set, not both.",
     ):
-      framework._run_task(runner, task, mock_client, limit=10, samples="0-5")
+      framework._run_task(
+          runner, task, mock_client, sample_range=(0, 10), samples="0-5"
+      )
 
   def test_evaluate_conflicts(self):
     framework = custom.CustomFramework()
     runner = mock.MagicMock()
-    with self.assertRaisesRegex(
-        ValueError, "--limit conflicts with 'limit' in --eval-args"
-    ):
-      framework.evaluate(runner, ["foo"], limit=5, eval_args={"limit": 5})
 
     with self.assertRaisesRegex(
         ValueError, "--batch-size conflicts with 'batch_size' in --eval-args"

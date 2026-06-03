@@ -67,6 +67,7 @@ class ResolvedEvalParams:
   """Container for resolved evaluation parameters."""
 
   limit: int | float | None
+  sample_range: tuple[int, int] | None
   batch_size: int | None
   eval_args: dict[str, Any]
 
@@ -89,6 +90,7 @@ class AbstractEvalFramework(abc.ABC):
       runner: "runners_base.AbstractRunner",
       tasks: list[str],
       limit: int | float | None = None,
+      sample_range: tuple[int, int] | None = None,
       batch_size: int | None = None,
       eval_args: dict[str, Any] | None = None,
   ) -> EvalResults:
@@ -97,7 +99,8 @@ class AbstractEvalFramework(abc.ABC):
     Args:
         runner: The runner implementation to evaluate.
         tasks: An iterable of task names to evaluate.
-        limit: Maximum samples or fraction per task.
+        limit: Maximum number of samples or fraction of samples to evaluate.
+        sample_range: Range of samples to evaluate.
         batch_size: Evaluation batch size.
         eval_args: Extra evaluation arguments.
 
@@ -111,6 +114,7 @@ class AbstractEvalFramework(abc.ABC):
       model_config: NativeModelConfig,
       tasks: list[str],
       limit: int | float | None = None,
+      sample_range: tuple[int, int] | None = None,
       batch_size: int | None = None,
       eval_args: dict[str, Any] | None = None,
   ) -> EvalResults:
@@ -120,6 +124,7 @@ class AbstractEvalFramework(abc.ABC):
         model_config: The native model configuration to evaluate.
         tasks: An iterable of task names to evaluate.
         limit: Maximum samples or fraction per task.
+        sample_range: Range of samples to evaluate.
         batch_size: Evaluation batch size.
         eval_args: Extra evaluation arguments.
 
@@ -172,6 +177,7 @@ class AbstractEvalFramework(abc.ABC):
   def _from_unified_eval_args(
       self,
       limit: int | float | None,
+      sample_range: tuple[int, int] | None,
       batch_size: int | None,
       eval_args: dict[str, Any] | None,
       limit_key: str = "limit",
@@ -180,11 +186,13 @@ class AbstractEvalFramework(abc.ABC):
   ) -> ResolvedEvalParams:
     """Resolves general evaluation constraints from unified flags and parameter overrides.
 
-    Safely resolves limits and batch sizing settings, translating unified flag
-    expectations into target framework-specific fields without collisions.
+    Safely resolves limits, sample ranges, and batch sizing settings,
+    translating unified flag expectations into target framework-specific fields
+    without collisions.
 
     Args:
         limit: Sample count or evaluation fraction limit.
+        sample_range: Range of samples to evaluate.
         batch_size: Evaluation batch size.
         eval_args: Additional evaluation framework arguments dictionary.
         limit_key: Underlying framework key for the limit arg.
@@ -192,13 +200,21 @@ class AbstractEvalFramework(abc.ABC):
         default_batch_size: Default batch size if absent in both sources.
 
     Returns:
-        Resolved parameter mapping container holding the limit, batch size, and
-        remaining evaluation argument overrides.
+        Resolved parameter mapping container holding limit, sample range, batch
+        size, and remaining evaluation argument overrides.
     """
     args = dict(eval_args or {})
+
     res_limit = self._consume_arg(
         limit, args, limit_key, "--limit", "--eval-args"
     )
+
+    if res_limit is not None and sample_range is not None:
+      raise ValueError(
+          f"Conflicting options: limit ({res_limit}) and sample_range"
+          f" ({sample_range}) cannot be used together. Please specify only one."
+      )
+
     res_batch = self._consume_arg(
         batch_size,
         args,
@@ -208,7 +224,10 @@ class AbstractEvalFramework(abc.ABC):
         default=default_batch_size,
     )
     return ResolvedEvalParams(
-        limit=res_limit, batch_size=res_batch, eval_args=args
+        limit=res_limit,
+        sample_range=sample_range,
+        batch_size=res_batch,
+        eval_args=args,
     )
 
   def _from_unified_runner_args(

@@ -137,16 +137,6 @@ class TestLmEvalAdapter(unittest.TestCase):
   def test_evaluate_conflicts(self):
     framework = lm_eval.LmEvalFramework()
     with self.assertRaisesRegex(
-        ValueError, "--limit conflicts with 'limit' in --eval-args"
-    ):
-      framework.evaluate(
-          self.mock_runner,
-          ["task1"],
-          limit=10,
-          eval_args={"limit": 10, "apply_chat_template": True},
-      )
-
-    with self.assertRaisesRegex(
         ValueError, "--batch-size conflicts with 'batch_size' in --eval-args"
     ):
       framework.evaluate(

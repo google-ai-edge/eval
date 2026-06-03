@@ -16,7 +16,9 @@
 
 import dataclasses
 import importlib
+import types
 from typing import Any
+import warnings
 
 from model_eval.frameworks import base
 from model_eval.frameworks import registry
@@ -26,6 +28,7 @@ from model_eval.utils import introspection
 from lighteval import pipeline as lighteval_pipeline  # type: ignore
 from lighteval.logging import evaluation_tracker  # type: ignore
 from lighteval.models.endpoints import litellm_model  # type: ignore
+from lighteval.tasks import lighteval_task  # type: ignore
 from lighteval.tasks import registry as lighteval_registry  # type: ignore
 import litellm
 
@@ -66,6 +69,101 @@ _NATIVE_RUNNER_CONFIGS = {
 }
 
 
+def configure_lighteval_slicing(
+    limit: int | float | None = None,
+    sample_range: tuple[int, int] | None = None,
+):
+  """Configures LightevalTask.get_docs to support slicing data within [start, end].
+
+  Args:
+      limit: Maximum number of samples to evaluate per task if integer, or
+        fraction of samples if float. Defaults to None.
+      sample_range (list/tuple): e.g., [10, 20], meaning it fetches data from
+        index 10 to 19.
+  """
+  # Safely backup the original method to prevent redundant patching.
+  if not hasattr(lighteval_task.LightevalTask, "_original_get_docs"):
+    lighteval_task.LightevalTask._original_get_docs = (
+        lighteval_task.LightevalTask.get_docs
+    )
+
+  def slicing_get_docs(
+      self_instance, max_samples: int | None = None, *args, **kwargs
+  ):
+    if sample_range:
+      assert (
+          len(sample_range) == 2
+      ), "sample_range must be a list or tuple of two integers, e.g., [10, 20]."
+      assert sample_range[0] <= sample_range[1], "start must be <= end."
+
+      start = sample_range[0]
+      end = sample_range[1]
+
+      # Calls the original get_docs method.
+      #
+      # At this point, `max_samples` is already set to the right
+      # boundary of our slice (`end`). The underlying Lighteval framework
+      # eagerly loads the data and performs the following operations:
+      #
+      # 1. Fully loads the dataset and applies the task's prompt function to
+      #    convert raw dataset items into `Doc` objects.
+      # 2. Performs a global in-memory shuffle of the entire dataset using a
+      #    fixed random seed (seed=42).
+      # 3. Truncates the list to keep only the first `max_samples` items.
+      # 4. Assembles few-shot examples and injects generation parameters for
+      #    these items.
+      #
+      # It is guaranteed to return a standard Python list (`list[Doc]`)
+      # containing the first `end` fully processed evaluation samples.
+      docs = lighteval_task.LightevalTask._original_get_docs(
+          self_instance, end + 1, *args, **kwargs
+      )
+      if start > len(docs):
+        raise ValueError(
+            f"Start index {start} exceeds dataset length {len(docs)}."
+        )
+      if end + 1 > len(docs):
+        warnings.warn(
+            f"End index {end} exceeds dataset length {len(docs)}. Adjusting end"
+            f" to {len(docs) - 1}."
+        )
+        end = len(docs) - 1
+      return docs[start : end + 1]
+    elif limit:
+      if isinstance(limit, float):
+        # Calls the original get_docs method without a max_samples bound.
+        #
+        # Eagerly loads the full dataset to enable dynamic percentage sampling:
+        #
+        # 1. Fully loads the dataset and applies the task's prompt function to
+        #    convert raw dataset items into `Doc` objects.
+        # 2. Performs a global in-memory shuffle of the entire dataset using a
+        #    fixed random seed (seed=42).
+        # 3. Assembles few-shot examples and injects generation parameters for
+        #    all items in the dataset.
+        #
+        # Once the fully processed list (`list[Doc]`) is returned, we calculate
+        # the slice count based on the actual length (`int(len(docs) * limit)`)
+        # and return the leading fraction of evaluation samples.
+        docs = lighteval_task.LightevalTask._original_get_docs(
+            self_instance, None, *args, **kwargs
+        )
+        end = max(int(len(docs) * limit), 1)
+        return docs[:end]
+      else:
+        return lighteval_task.LightevalTask._original_get_docs(
+            self_instance, limit, *args, **kwargs
+        )
+    else:
+      # If no sample_range is configured, just fall back to the original logic.
+      return lighteval_task.LightevalTask._original_get_docs(
+          self_instance, max_samples, *args, **kwargs
+      )
+
+  # Replace the original class method with the slicing version.
+  lighteval_task.LightevalTask.get_docs = slicing_get_docs
+
+
 @registry.register_framework("lighteval")
 class LightEvalFramework(base.AbstractEvalFramework):
   """Framework implementation leveraging lighteval for evaluations."""
@@ -75,6 +173,7 @@ class LightEvalFramework(base.AbstractEvalFramework):
       runner: "runners_base.AbstractRunner",
       tasks: list[str],
       limit: int | float | None = None,
+      sample_range: tuple[int, int] | None = None,
       batch_size: int | None = None,
       eval_args: dict[str, Any] | None = None,
   ) -> base.EvalResults:
@@ -86,20 +185,17 @@ class LightEvalFramework(base.AbstractEvalFramework):
     Args:
         runner: The runner instance providing the model name and server URL.
         tasks: A list of task names to evaluate.
-        limit: Maximum samples per task. Must be an integer or None.
+        limit: Maximum samples per task.
+        sample_range: Range of samples to evaluate.
         batch_size: Evaluation batch size.
         eval_args: Additional evaluation arguments for the Lighteval pipeline.
 
     Returns:
         The EvalResults containing the evaluation results.
-
-    Raises:
-        ValueError: If limit is a fraction (float < 1), as Lighteval only
-          supports integer limits.
     """
     # Resolve unified evaluation arguments into Lighteval-specific overrides.
     eval_params = self._from_unified_eval_args(
-        limit, batch_size, eval_args, limit_key="max_samples"
+        limit, sample_range, batch_size, eval_args, limit_key="max_samples"
     )
 
     # Configure LiteLLM connector targeting the runner's server endpoint.
@@ -111,13 +207,14 @@ class LightEvalFramework(base.AbstractEvalFramework):
         # LiteRT LM server.
         concurrent_requests=1,
     )
-    max_samples = self._resolve_max_samples(eval_params.limit)
+
     # Use our custom model adapter that delegates generation and scoring.
     model = _chat_score_lighteval_model.ChatScoreLightevalModel(config)
     return self._run_pipeline(
         tasks=tasks,
         model=model,
-        max_samples=max_samples,
+        limit=eval_params.limit,
+        sample_range=eval_params.sample_range,
         eval_args=eval_params.eval_args,
     )
 
@@ -126,6 +223,7 @@ class LightEvalFramework(base.AbstractEvalFramework):
       model_config: base.NativeModelConfig,
       tasks: list[str],
       limit: int | float | None = None,
+      sample_range: tuple[int, int] | None = None,
       batch_size: int | None = None,
       eval_args: dict[str, Any] | None = None,
   ) -> base.EvalResults:
@@ -138,22 +236,19 @@ class LightEvalFramework(base.AbstractEvalFramework):
         model_config: Configuration for the native model, including model type
           and arguments.
         tasks: A list of task names to evaluate.
-        limit: Maximum samples per task. Must be an integer or None.
+        limit: Maximum samples per task.
+        sample_range: Range of samples to evaluate, space-separated (e.g., (10,
+          20)).
         batch_size: Evaluation batch size.
         eval_args: Additional evaluation arguments for the Lighteval pipeline.
 
     Returns:
         The EvalResults containing the evaluation results.
-
-    Raises:
-        ValueError: If the native model type is unsupported, or if limit is a
-          fraction (float < 1).
     """
     # Resolve unified evaluation arguments into Lighteval-specific overrides.
     eval_params = self._from_unified_eval_args(
-        limit, batch_size, eval_args, limit_key="max_samples"
+        limit, sample_range, batch_size, eval_args, limit_key="max_samples"
     )
-    max_samples = self._resolve_max_samples(eval_params.limit)
 
     # Retrieve the metadata required to instantiate the requested native engine.
     if model_config.model not in _NATIVE_RUNNER_CONFIGS:
@@ -195,35 +290,18 @@ class LightEvalFramework(base.AbstractEvalFramework):
     return self._run_pipeline(
         tasks=tasks,
         model_config=lm_config,
-        max_samples=max_samples,
+        limit=eval_params.limit,
+        sample_range=eval_params.sample_range,
         eval_args=eval_params.eval_args,
     )
-
-  def _resolve_max_samples(self, limit: int | float | None) -> int | None:
-    """Resolves the maximum number of samples to evaluate.
-
-    Args:
-        limit: The unified limit argument specifying maximum samples.
-
-    Returns:
-        The integer number of maximum samples to evaluate, or None if unbounded.
-
-    Raises:
-        ValueError: If the limit is provided as a fractional value.
-    """
-    if limit is not None and isinstance(limit, float) and limit < 1:
-      raise ValueError(
-          "Lighteval does not support fractional limits. Please provide an"
-          " integer limit or use the 'max_samples' key in --eval-args."
-      )
-    return int(limit) if limit is not None else None
 
   def _run_pipeline(
       self,
       tasks: list[str],
       model: Any = None,
       model_config: Any = None,
-      max_samples: int | float | None = None,
+      limit: int | float | None = None,
+      sample_range: tuple[int, int] | None = None,
       eval_args: dict[str, Any] | None = None,
   ) -> base.EvalResults:
     """Runs the Lighteval pipeline with the specified parameters.
@@ -245,12 +323,24 @@ class LightEvalFramework(base.AbstractEvalFramework):
           evaluations). Defaults to None.
         model_config: A native Lighteval model configuration object (used for
           native pipeline execution). Defaults to None.
-        max_samples: The maximum number of samples to evaluate, or None.
+        limit: Maximum number of samples to evaluate per task if integer, or
+          fraction of samples if float. Defaults to None.
+        sample_range: Range of samples to evaluate.
         eval_args: Additional lightweight arguments for PipelineParameters.
 
     Returns:
         The EvalResults from the pipeline execution.
     """
+    eval_args = dict(eval_args or {})
+
+    configure_lighteval_slicing(limit, sample_range)
+    if sample_range:
+      max_samples = sample_range[1] + 1
+    elif limit and isinstance(limit, int):
+      max_samples = limit
+    else:
+      max_samples = None
+
     pipeline_params = lighteval_pipeline.PipelineParameters(
         launcher_type=lighteval_pipeline.ParallelismManager.CUSTOM,
         max_samples=max_samples,
@@ -278,6 +368,8 @@ class LightEvalFramework(base.AbstractEvalFramework):
     finally:
       litellm.suppress_debug_info = old_suppress
       litellm.set_verbose = old_verbose
+
+    configure_lighteval_slicing(limit=None, sample_range=None)
 
     raw_results = pipeline.get_results()
     # Explicitly fetch the per-sample details as dictionaries.

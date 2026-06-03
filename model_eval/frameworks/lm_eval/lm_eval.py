@@ -28,6 +28,61 @@ from lm_eval import tasks as lm_eval_tasks
 from model_eval.frameworks import _local_chat_score_model  # pylint: disable=unused-import,g-bad-import-order
 
 
+def configure_lm_eval_slicing(sample_range=None):
+  """Configures lm-eval's Task.doc_iterator to support slicing data within [start, end].
+
+  Args:
+      sample_range (list/tuple): e.g., [10, 20], meaning it fetches data from
+        index 10 to 19.
+  """
+  # Lazy import to avoid circular dependencies.
+  from lm_eval.api import task as lm_eval_task  # pylint: disable=g-import-not-at-top
+
+  # Safely backup the original method to prevent redundant patching.
+  if not hasattr(lm_eval_task.Task, "_original_doc_iterator"):
+    lm_eval_task.Task._original_doc_iterator = lm_eval_task.Task.doc_iterator
+
+  def slicing_doc_iterator(self_instance, *args, **kwargs):
+    if sample_range:
+      assert (
+          len(sample_range) == 2
+      ), "sample_range must be a list or tuple of two integers, e.g., [10, 20]."
+      assert sample_range[0] <= sample_range[1], "start must be <= end."
+
+      start = sample_range[0]
+      end = sample_range[1]
+
+      # lm-eval asserts and crashes if indices are out of bounds, so cap them
+      # here.
+      n = len(self_instance.eval_docs)
+      if start > n:
+        raise ValueError(f"Start index {start} exceeds dataset length {n}.")
+      if end + 1 > n:
+        warnings.warn(
+            f"End index {end} exceeds dataset length {n}. Adjusting end to"
+            f" {n - 1}."
+        )
+        end = n - 1
+
+      # Set 'samples' to the specified range of indices.
+      kwargs["samples"] = range(start, end + 1)
+      # 'limit' and 'samples' are mutually exclusive in lm-eval; force limit to
+      # None.
+      kwargs["limit"] = None
+
+      return lm_eval_task.Task._original_doc_iterator(
+          self_instance, *args, **kwargs
+      )
+    else:
+      # If no sample_range is configured, just fall back to the original logic
+      return lm_eval_task.Task._original_doc_iterator(
+          self_instance, *args, **kwargs
+      )
+
+  # Override the original method with the slicing version.
+  lm_eval_task.Task.doc_iterator = slicing_doc_iterator
+
+
 def _model_args(runner: runners_base.AbstractRunner) -> str:
   """Constructs the model arguments for generation/chat tasks.
 
@@ -86,6 +141,7 @@ class LmEvalFramework(base.AbstractEvalFramework):
       runner: runners_base.AbstractRunner,
       tasks: list[str],
       limit: int | float | None = None,
+      sample_range: tuple[int, int] | None = None,
       batch_size: int | None = None,
       eval_args: dict[str, Any] | None = None,
   ) -> base.EvalResults:
@@ -95,6 +151,7 @@ class LmEvalFramework(base.AbstractEvalFramework):
         runner: The runner instance to evaluate against.
         tasks: A list of task names to evaluate.
         limit: Limit for samples.
+        sample_range: Range of samples to evaluate.
         batch_size: Evaluation batch size.
         eval_args: Additional evaluation arguments.
 
@@ -102,13 +159,14 @@ class LmEvalFramework(base.AbstractEvalFramework):
         The results of the evaluation.
     """
     params = self._from_unified_eval_args(
-        limit, batch_size, eval_args, default_batch_size=1
+        limit, sample_range, batch_size, eval_args, default_batch_size=1
     )
 
     num_fewshot = params.eval_args.pop("num_fewshot", 0)
     # By default, apply_chat_template is set to True for custom runner as the
     # custom runner applies chat templates internally.
     apply_chat_template = params.eval_args.pop("apply_chat_template", True)
+
     if not apply_chat_template:
       raise ValueError(
           "apply_chat_template must be True for "
@@ -121,18 +179,22 @@ class LmEvalFramework(base.AbstractEvalFramework):
     if hasattr(runner, "returns_greedy") and not runner.returns_greedy:
       self._warn_loglikelihood_tasks(tasks, task_manager)
 
-    with runner:
-      raw_results = lm_eval.simple_evaluate(
-          model=constants.LOCAL_CHAT_SCORE_MODEL_NAME,
-          model_args=_model_args(runner),
-          tasks=tasks,
-          num_fewshot=num_fewshot,
-          batch_size=params.batch_size,
-          limit=params.limit,
-          task_manager=task_manager,
-          apply_chat_template=apply_chat_template,
-          **params.eval_args,
-      )
+    configure_lm_eval_slicing(params.sample_range)
+    try:
+      with runner:
+        raw_results = lm_eval.simple_evaluate(
+            model=constants.LOCAL_CHAT_SCORE_MODEL_NAME,
+            model_args=_model_args(runner),
+            tasks=tasks,
+            num_fewshot=num_fewshot,
+            batch_size=params.batch_size,
+            limit=params.limit,
+            task_manager=task_manager,
+            apply_chat_template=apply_chat_template,
+            **params.eval_args,
+        )
+    finally:
+      configure_lm_eval_slicing(sample_range=None)
 
     return _parse_lm_eval_results(raw_results)
 
@@ -141,6 +203,7 @@ class LmEvalFramework(base.AbstractEvalFramework):
       model_config: base.NativeModelConfig,
       tasks: list[str],
       limit: int | float | None = None,
+      sample_range: tuple[int, int] | None = None,
       batch_size: int | None = None,
       eval_args: dict[str, Any] | None = None,
   ) -> base.EvalResults:
@@ -150,13 +213,16 @@ class LmEvalFramework(base.AbstractEvalFramework):
         model_config: The native model configuration.
         tasks: A list of task names to evaluate.
         limit: Limit for samples.
+        sample_range: Range of samples to evaluate.
         batch_size: Evaluation batch size.
         eval_args: Additional evaluation arguments.
 
     Returns:
         The results of the evaluation.
     """
-    eval_params = self._from_unified_eval_args(limit, batch_size, eval_args)
+    eval_params = self._from_unified_eval_args(
+        limit, sample_range, batch_size, eval_args
+    )
 
     num_fewshot = eval_params.eval_args.pop("num_fewshot", 0)
     # By default, apply_chat_template is set to True to avoid unexpected
@@ -178,18 +244,23 @@ class LmEvalFramework(base.AbstractEvalFramework):
     # Pop device key from runner_args to avoid conflicts with the device flag in
     # lm_eval.simple_evaluate().
     runner_args.model_args.pop(device_key, None)
-    raw_results = lm_eval.simple_evaluate(
-        model=model_config.model,
-        model_args=runner_args.model_args,
-        tasks=tasks,
-        num_fewshot=num_fewshot,
-        batch_size=eval_params.batch_size,
-        device=runner_args.device,
-        limit=eval_params.limit,
-        task_manager=task_manager,
-        apply_chat_template=apply_chat_template,
-        **eval_params.eval_args,
-    )
+
+    configure_lm_eval_slicing(eval_params.sample_range)
+    try:
+      raw_results = lm_eval.simple_evaluate(
+          model=model_config.model,
+          model_args=runner_args.model_args,
+          tasks=tasks,
+          num_fewshot=num_fewshot,
+          batch_size=eval_params.batch_size,
+          device=runner_args.device,
+          limit=eval_params.limit,
+          task_manager=task_manager,
+          apply_chat_template=apply_chat_template,
+          **eval_params.eval_args,
+      )
+    finally:
+      configure_lm_eval_slicing(sample_range=None)
 
     return _parse_lm_eval_results(raw_results)
 

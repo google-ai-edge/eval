@@ -40,7 +40,6 @@ import yaml
 
 class EvalPipelineTest(absltest.TestCase):
 
-
   def setUp(self):
     super().setUp()
     self.temp_dir = tempfile.TemporaryDirectory()
@@ -212,7 +211,7 @@ class EvalPipelineTest(absltest.TestCase):
         framework=framework_base.FrameworkType.LM_EVAL,
         eval_args={"apply_chat_template": True},
         output_dir=self.output_dir,
-        limit=10,
+        sample_range=(0, 10),
     )
 
     returned_results = p.run()
@@ -420,7 +419,6 @@ class EvalPipelineTest(absltest.TestCase):
     self.assertEqual(len(metric_files), 1)
     self.assertEqual(len(sample_files), 0)
 
-
   @mock.patch("model_eval.api.pipeline._load_task_allowlist")
   @mock.patch("model_eval.frameworks.registry.get_framework")
   def test_run_native_produces_jsonl_files(
@@ -453,9 +451,10 @@ class EvalPipelineTest(absltest.TestCase):
     returned_results = p.run()
     self.assertEqual(returned_results, mock_results)
     mock_framework.evaluate_native.assert_called_once_with(
-        model,
-        ["example_task"],
+        model_config=model,
+        tasks=["example_task"],
         limit=None,
+        sample_range=None,
         batch_size=None,
         eval_args={},
     )
@@ -525,4 +524,3 @@ class EvalPipelineTest(absltest.TestCase):
 
 if __name__ == "__main__":
   absltest.main()
-

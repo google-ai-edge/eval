@@ -20,6 +20,7 @@
   - [LiteRT LM Runners](#🤖-litert-lm-runners)
   - [Direct Native Library Runners](#🚀-direct-native-library-runners-huggingface-etc)
   - [Lighteval Framework](#🪶-lighteval-framework)
+  - [Subsetting and Slicing Datasets](#✂️-subsetting-and-slicing-datasets)
 - [🛠️ Custom Task CUJ](#️-custom-task-cuj)
   - [1. Prepare the Dataset](#1-prepare-the-dataset)
   - [2. Task Definition](#2-task-definition)
@@ -263,10 +264,32 @@ ai-edge-eval \
 ```
 
 > [!IMPORTANT]
-> Always pin `--batch-size 1` when using `--framework lighteval`. Without it, lighteval auto-picks the largest batch that fits, which can OOM on the LiteRT-LM runner and produces padding-dependent results across runs. We recommend using a small `--limit` (e.g., `--limit 1-5`) for generation and sampling tasks (`ifeval`, `bigbench_hard`) to perform quick smoke checks. This allows you to verify task configuration and gauge the overall evaluation size (including token generation volume) before launching comprehensive runs.
+> Always pin `--batch-size 1` when using `--framework lighteval`. Without it, lighteval auto-picks the largest batch that fits, which can OOM on the LiteRT-LM runner and produces padding-dependent results across runs. We recommend using a small `--limit` (e.g., `--limit 5`) or `--sample-range` (e.g., `--sample-range 0 4`) for generation and sampling tasks (`ifeval`, `bigbench_hard`) to perform quick smoke checks. This allows you to verify task configuration and gauge the overall evaluation size (including token generation volume) before launching comprehensive runs.
 
 > [!NOTE]
 > Some known cross-path differences when running the same model under both lighteval runners: (1) the accelerate path injects the tokenizer's default system message; the litert-lm path doesn't — prompts differ on tasks without an explicit system message. (2) The accelerate path is currently non-deterministic across process invocations (upstream lighteval issue); the litert-lm path is byte-deterministic.
+
+### ✂️ Subsetting and Slicing Datasets
+
+When debugging, performing smoke checks, or evaluating specific dataset slices, you can restrict the number of samples evaluated using the following mutually exclusive flags:
+
+- `--limit <int | float>`: Limits evaluation to a maximum number of samples (e.g., `--limit 10`) or a fraction of the total dataset (e.g., `--limit 0.1` for 10%).
+- `--sample-range <start> <end>`: Evaluates a targeted index range of samples, inclusive of both `start` and `end` (e.g., `--sample-range 10 20` evaluates samples 10 through 20).
+
+```bash
+# Example: Evaluate a specific 5-sample slice (indices 10 to 14) using lm-eval
+ai-edge-eval \
+      --runner litert-lm \
+      --model-path /path/to/model.litertlm \
+      --device cpu \
+      --tasks ifeval \
+      --framework lm-eval \
+      --sample-range 10 14 \
+      --output-dir your_result_directory
+```
+
+> [!NOTE]
+> `--limit` and `--sample-range` are mutually exclusive. Specifying both will result in a configuration error.
 
 ---
 

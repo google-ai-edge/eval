@@ -31,7 +31,7 @@ pytest.importorskip(
     reason="lm_eval framework adapter requires the package",
 )
 
- # pylint: disable=g-import-not-at-top,g-bad-import-order
+# pylint: disable=g-import-not-at-top,g-bad-import-order
 from model_eval.frameworks.lm_eval import lm_eval
 
 
@@ -50,7 +50,7 @@ class LmEvalApplyChatTemplateEnforcementTest(absltest.TestCase):
       fw.evaluate(
           runner,
           tasks=["arc_easy"],
-          limit=1,
+          sample_range=(1, 1),
           batch_size=1,
           eval_args={"apply_chat_template": False},
       )
@@ -79,7 +79,7 @@ class LmEvalApplyChatTemplateEnforcementTest(absltest.TestCase):
         fw.evaluate(
             runner,
             tasks=["arc_easy"],
-            limit=1,
+            sample_range=(1, 1),
             batch_size=1,
             eval_args={},  # apply_chat_template defaults to True
         )

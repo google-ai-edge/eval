@@ -124,6 +124,7 @@ def _execute_eval(
     runner_args,
     tasks,
     limit,
+    sample_range,
     batch_size,
     framework,
     custom_tasks_file,
@@ -141,6 +142,7 @@ def _execute_eval(
       runner_args: Captured string of extra configuration arguments for runner.
       tasks: Interable collection of benchmark task names to be ran.
       limit: Optional limit setting maximum samples or fraction per task.
+      sample_range: Optional range of samples to evaluate (start,end).
       batch_size: Number of items processed at once during inference.
       framework: The framework name string used to structure evaluation.
       custom_tasks_file: Filepath mapping to a file registering custom tasks.
@@ -149,6 +151,11 @@ def _execute_eval(
       task_config: Optional tasks.yaml override file path.
       runner_config: Optional runners.yaml override file path.
   """
+  if not runner:
+    raise click.UsageError("Missing option '--runner'.")
+  if not tasks:
+    raise click.UsageError("Missing option '--tasks'.")
+
   _load_custom_tasks(custom_tasks_file)
 
   model_config = _build_model_config(runner, runner_args, model_path, device)
@@ -160,6 +167,7 @@ def _execute_eval(
       framework=framework_base.FrameworkType(framework),
       tasks=tuple(tasks),
       limit=limit,
+      sample_range=sample_range,
       batch_size=batch_size,
       output_dir=output_dir,
       task_config=task_config,
@@ -177,6 +185,32 @@ def _execute_eval(
     for metric_name, value in metrics.items():
       val_str = f"{value:.4f}" if isinstance(value, float) else str(value)
       print(f"{task_name:40s} {metric_name:20s} {val_str}")
+
+
+def _validate_sample_range(ctx, param, value):
+  """Validates that sample_range start <= end."""
+  if value and value[0] > value[1]:
+    raise click.BadParameter(
+        "Sample range start must be less than or equal to end."
+    )
+  return value
+
+
+def _validate_limit(ctx, param, value):
+  """Validates that limit is a float in (0, 1) or an integer >= 1."""
+  if value is not None:
+    try:
+      fval = float(value)
+      if fval <= 0:
+        raise click.BadParameter("Limit must be greater than 0.")
+      if fval < 1:
+        return fval
+      if not fval.is_integer():
+        raise click.BadParameter("Limit >= 1 must be an integer.")
+      return int(fval)
+    except ValueError as e:
+      raise click.BadParameter(f"Limit must be an integer or float. {e}") from e
+  return None
 
 
 @click.group(name="ai-edge-eval", invoke_without_command=True)
@@ -211,8 +245,18 @@ def _execute_eval(
 @click.option(
     "--limit",
     default=None,
-    type=float,
+    callback=_validate_limit,
     help="Maximum samples or fraction per task.",
+)
+@click.option(
+    "--sample-range",
+    default=None,
+    type=(click.IntRange(min=0), click.IntRange(min=0)),
+    callback=_validate_sample_range,
+    help=(
+        "Range of samples to evaluate, space-separated (e.g., --sample-range"
+        " 0 10)."
+    ),
 )
 @click.option(
     "--batch-size",
@@ -267,6 +311,7 @@ def cli(
     runner_args,
     tasks,
     limit,
+    sample_range,
     batch_size,
     framework,
     custom_tasks_file,
@@ -277,10 +322,6 @@ def cli(
 ):
   """Main entry point for the AI Edge Evaluation tool."""
   if ctx.invoked_subcommand is None:
-    if not runner:
-      raise click.UsageError("Missing option '--runner'.")
-    if not tasks:
-      raise click.UsageError("Missing option '--tasks'.")
     _execute_eval(
         runner,
         model_path,
@@ -288,6 +329,7 @@ def cli(
         runner_args,
         tasks,
         limit,
+        sample_range,
         batch_size,
         framework,
         custom_tasks_file,
@@ -303,10 +345,6 @@ def cli(
 def run_pipeline(ctx):
   """Runs the evaluation pipeline with the specified configuration."""
   parent_params = ctx.parent.params
-  if not parent_params.get("runner"):
-    raise click.UsageError("Missing required option '--runner'.")
-  if not parent_params.get("tasks"):
-    raise click.UsageError("Missing required option '--tasks'.")
   _execute_eval(
       runner=parent_params.get("runner"),
       model_path=parent_params.get("model_path"),
@@ -314,6 +352,7 @@ def run_pipeline(ctx):
       runner_args=parent_params.get("runner_args"),
       tasks=parent_params.get("tasks"),
       limit=parent_params.get("limit"),
+      sample_range=parent_params.get("sample_range"),
       batch_size=parent_params.get("batch_size"),
       framework=parent_params.get("framework"),
       custom_tasks_file=parent_params.get("custom_tasks_file"),

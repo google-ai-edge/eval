@@ -48,7 +48,9 @@ class TestLightEvalAdapter(absltest.TestCase):
     mock_pipeline.evaluation_tracker.details = {}
 
     framework = lighteval.LightEvalFramework()
-    results = framework.evaluate(self.mock_runner, ["task1"], limit=100)
+    results = framework.evaluate(
+        self.mock_runner, ["task1"], sample_range=(0, 99)
+    )
 
     mock_pipeline_cls.assert_called_once()
     kwargs = mock_pipeline_cls.call_args.kwargs
@@ -78,7 +80,9 @@ class TestLightEvalAdapter(absltest.TestCase):
     )
     with mock.patch.object(lighteval.importlib, "import_module") as mock_import:
       mock_import.return_value = mock.MagicMock()
-      results = framework.evaluate_native(config, ["task2"], limit=50)
+      results = framework.evaluate_native(
+          config, ["task2"], sample_range=(0, 49)
+      )
 
     mock_pipeline.evaluate.assert_called_once()
     mock_pipeline.save_and_push_results.assert_called_once()
@@ -108,18 +112,6 @@ class TestLightEvalAdapter(absltest.TestCase):
           ValueError, "--device conflicts with 'device' in --runner-args"
       ):
         framework.evaluate_native(config_device, ["task2"])
-
-  def test_conflict_limit(self):
-    framework = lighteval.LightEvalFramework()
-    with self.assertRaisesRegex(
-        ValueError, "conflicts with 'max_samples' in --eval-args"
-    ):
-      framework.evaluate(
-          self.mock_runner,
-          ["task1"],
-          limit=10,
-          eval_args={"max_samples": 10},
-      )
 
   def test_conflict_batch_size(self):
     framework = lighteval.LightEvalFramework()
@@ -155,18 +147,6 @@ class TestLightEvalAdapter(absltest.TestCase):
     self.assertIsInstance(fields, list)
     for field in fields:
       self.assertIn("name", field)
-
-  def test_resolve_max_samples(self):
-    framework = lighteval.LightEvalFramework()
-    # Passes integer successfully.
-    self.assertEqual(framework._resolve_max_samples(10), 10)
-    # Converts whole float limit to integer successfully.
-    self.assertEqual(framework._resolve_max_samples(10.0), 10)
-    # Raises exception for a fractional limit < 1.
-    with self.assertRaisesRegex(
-        ValueError, "does not support fractional limits"
-    ):
-      framework._resolve_max_samples(0.5)
 
   @mock.patch("model_eval.runners.registry.get_all_runners")
   def test_supported_runners(self, mock_get_all_runners):

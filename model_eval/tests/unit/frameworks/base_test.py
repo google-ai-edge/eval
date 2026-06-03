@@ -22,7 +22,7 @@ from model_eval.frameworks import base
 class DummyFramework(base.AbstractEvalFramework):
 
   def evaluate(
-      self, runner, tasks, limit=None, batch_size=None, eval_args=None
+      self, runner, tasks, sample_range=None, batch_size=None, eval_args=None
   ):
     pass
 
@@ -48,31 +48,70 @@ class BaseFrameworkResolverTest(unittest.TestCase):
   def test_explicit_priority_conflict(self):
     with self.assertRaises(ValueError):
       self.framework._from_unified_eval_args(
-          limit=10, batch_size=None, eval_args={"limit": 20}
+          limit=None,
+          sample_range=None,
+          batch_size=10,
+          eval_args={"batch_size": 20},
       )
 
   def test_dictionary_extraction(self):
     res = self.framework._from_unified_eval_args(
-        limit=None, batch_size=None, eval_args={"limit": 20}
+        limit=None,
+        sample_range=None,
+        batch_size=None,
+        eval_args={"batch_size": 20},
     )
-    self.assertEqual(res.limit, 20)
-    self.assertNotIn("limit", res.eval_args)
+    self.assertEqual(res.batch_size, 20)
+    self.assertNotIn("batch_size", res.eval_args)
 
   def test_custom_key_mapping(self):
     res = self.framework._from_unified_eval_args(
         limit=None,
+        sample_range=None,
         batch_size=None,
-        eval_args={"max_samples": 30},
-        limit_key="max_samples",
+        eval_args={"bs": 30},
+        batch_size_key="bs",
     )
-    self.assertEqual(res.limit, 30)
-    self.assertNotIn("max_samples", res.eval_args)
+    self.assertEqual(res.batch_size, 30)
+    self.assertNotIn("bs", res.eval_args)
 
   def test_defaulting(self):
     res = self.framework._from_unified_eval_args(
-        limit=None, batch_size=None, eval_args={}, default_batch_size=1
+        limit=None,
+        sample_range=None,
+        batch_size=None,
+        eval_args={},
+        default_batch_size=1,
     )
     self.assertEqual(res.batch_size, 1)
+
+  def test_sample_range_normalization_and_conflict(self):
+    # Check limit extraction.
+    res1 = self.framework._from_unified_eval_args(
+        limit=None, sample_range=None, batch_size=None, eval_args={"limit": 10}
+    )
+    self.assertEqual(res1.limit, 10)
+    self.assertNotIn("limit", res1.eval_args)
+
+    # Check max_samples extraction.
+    res2 = self.framework._from_unified_eval_args(
+        limit=None,
+        sample_range=None,
+        batch_size=None,
+        eval_args={"max_samples": 5},
+        limit_key="max_samples",
+    )
+    self.assertEqual(res2.limit, 5)
+    self.assertNotIn("max_samples", res2.eval_args)
+
+    # Conflict between unified flags and eval_args.
+    with self.assertRaises(ValueError):
+      self.framework._from_unified_eval_args(
+          limit=None,
+          sample_range=(10, 20),
+          batch_size=None,
+          eval_args={"limit": 5},
+      )
 
   def test_runner_args_extraction_and_injection(self):
     model_config = base.NativeModelConfig(
