@@ -80,7 +80,7 @@ class CliLightevalSmokeTest(absltest.TestCase):
 
   def test_list_tasks_lighteval(self):
     """list-tasks --framework lighteval returns the yaml allowlist and exits 0."""
-    p = self._run("list-tasks", "--framework", "lighteval")
+    p = self._run("list-tasks", "--framework", "lighteval", "--show-subtasks")
     self.assertEqual(p.returncode, 0, msg=p.stderr)
     out = p.stdout
     # Known tasks from model_eval/config/tasks.yaml (lighteval section).

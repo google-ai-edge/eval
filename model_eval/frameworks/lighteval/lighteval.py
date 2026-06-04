@@ -15,6 +15,7 @@
 """Adapter for the Lighteval evaluation framework."""
 
 import dataclasses
+import functools
 import importlib
 import types
 from typing import Any
@@ -386,14 +387,33 @@ class LightEvalFramework(base.AbstractEvalFramework):
     class because Lighteval does not provide a public API to retrieve the full
     list of supported tasks and suite aliases.
     """
+    registry_obj = _get_lighteval_registry()
+    if not registry_obj:
+      return []
     try:
-      registry_obj = lighteval_registry.Registry()
       # Accessing private members is necessary here as no public API exists.
       concrete = getattr(registry_obj, "_task_registry", {})
       suites = getattr(registry_obj, "_task_superset_dict", {})
       return sorted(set(concrete) | set(suites))
-    except (ImportError, AttributeError):
+    except AttributeError:
       return []
+
+  @classmethod
+  def subtasks_of(cls, task: str) -> list[str]:
+    """Expands a lighteval suite (e.g. `mmlu`) to its concrete subtasks.
+
+    Subtasks live in `Registry._task_superset_dict`, which already maps
+    each suite name to its full `suite:subtask` list (suite layout is
+    flat — no nested suites — so a single lookup is enough).
+
+    Args:
+        task: The parent task identifier to expand.
+
+    Returns:
+        A list of concrete subtask identifiers. Returns an empty list for
+        unknown names or concrete tasks.
+    """
+    return sorted(_lighteval_suite_dict().get(task, []))
 
   @classmethod
   def supported_runners(cls) -> list[str]:
@@ -417,6 +437,40 @@ class LightEvalFramework(base.AbstractEvalFramework):
           getattr(importlib.import_module(info.module_path), info.config_class)
       )
     raise NotImplementedError
+
+
+@functools.lru_cache(maxsize=1)
+def _get_lighteval_registry() -> lighteval_registry.Registry | None:
+  """Instantiates and caches the Lighteval Registry.
+
+  Construction is cached because it is slow (loads hundreds of task configs
+  from disk) and emits noisy stderr warnings.
+
+  Returns:
+      The initialized Registry instance, or None if Lighteval is not installed
+      or initialization fails.
+  """
+  try:
+    return lighteval_registry.Registry()
+  except (ImportError, AttributeError):
+    return None
+
+
+@functools.lru_cache(maxsize=1)
+def _lighteval_suite_dict() -> dict[str, list[str]]:
+  """Returns lighteval's suite -> [colon-prefixed subtasks] mapping.
+
+  Cached because constructing a `Registry` loads ~650 task configs from
+  disk and emits a noisy stderr warning each time. The mapping is static
+  for the process lifetime, so a single lookup is safe.
+
+  Returns:
+      A dictionary mapping suite names to lists of subtasks.
+  """
+  registry_obj = _get_lighteval_registry()
+  if not registry_obj:
+    return {}
+  return getattr(registry_obj, "_task_superset_dict", {}) or {}
 
 
 def _to_eval_results(raw: Any) -> base.EvalResults:

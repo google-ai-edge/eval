@@ -283,6 +283,28 @@ class AbstractEvalFramework(abc.ABC):
     ...
 
   @classmethod
+  def subtasks_of(cls, task: str) -> list[str]:
+    """Returns the concrete subtask names that `task` expands to.
+
+    Frameworks that organize tasks into groups/suites (e.g. lighteval's
+    `mmlu` suite, lm-eval's `mmlu` group) should override this to return
+    every descendant task name reachable from `task`. This is consumed by
+    `EvalPipeline` so that listing only a parent in the yaml allowlist
+    implicitly authorizes its subtasks.
+
+    The returned list does not include `task` itself, and is empty when
+    `task` is unknown or already a leaf.
+
+    Args:
+        task: The parent task identifier to expand.
+
+    Returns:
+        A list of concrete subtask identifiers.
+    """
+    del task
+    return []
+
+  @classmethod
   @abc.abstractmethod
   def supported_runners(cls) -> list[str]:
     """Returns a list of all supported runner strings.

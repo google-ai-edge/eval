@@ -14,6 +14,7 @@
 
 """lm-eval framework evaluation adapter for ai_edge_eval."""
 
+import functools
 from typing import Any
 import warnings
 
@@ -26,6 +27,117 @@ import lm_eval
 from lm_eval import tasks as lm_eval_tasks
 
 from model_eval.frameworks import _local_chat_score_model  # pylint: disable=unused-import,g-bad-import-order
+
+
+@functools.lru_cache(maxsize=1)
+def _lm_eval_task_manager() -> lm_eval_tasks.TaskManager:
+  """Returns the lm-eval `TaskManager`, cached once per process.
+
+  Subtask expansion calls this once per allowlist entry; constructing a
+  fresh `TaskManager` each time walks the lm-eval tasks tree and is the
+  dominant cost in the CLI `list-tasks --show-subtasks` path.
+
+  Returns:
+      The cached TaskManager instance.
+  """
+  return lm_eval_tasks.TaskManager()
+
+
+def _get_entry_type_and_subtasks(entry) -> tuple[str, list[str]]:
+  """Extracts the type and subtasks from an lm-eval task index entry.
+
+  Abstracts the difference in task index representation between older lm-eval
+  versions (which use raw dictionaries) and newer versions (which use
+  structured Entry class objects).
+
+  Args:
+      entry: A task index entry, which can be a dict (older lm-eval) or an Entry
+        object (newer lm-eval).
+
+  Returns:
+      A tuple containing:
+          - entry_type (str): One of "group", "task", "tag", or "unknown".
+          - subtasks (list[str]): List of concrete subtask names.
+  """
+  # Handle older lm-eval where entries are raw dicts.
+  if isinstance(entry, dict):
+    return entry.get("type", ""), entry.get("task", [])
+
+  # Handle newer lm-eval where entries are Entry objects.
+  kind = getattr(entry, "kind", None)
+  if kind is None:
+    return "", []
+
+  kind_str = str(kind).lower()
+  cfg = getattr(entry, "cfg", {})
+  tags = getattr(entry, "tags", [])
+
+  if "group" in kind_str:
+    subtasks = cfg.get("task", []) if isinstance(cfg, dict) else []
+    return "group", subtasks
+  if "task" in kind_str:
+    return "task", []
+  if "tag" in kind_str:
+    return "tag", list(tags) if tags is not None else []
+
+  return "unknown", []
+
+
+def _resolve_subtasks_recursively(
+    name: str,
+    index: dict[str, Any],
+    manager: lm_eval_tasks.TaskManager,
+    seen: set[str],
+) -> set[str]:
+  """Recursively traverses the task index to find all concrete leaf tasks.
+
+  Args:
+      name: The name of the task, group, or tag to traverse.
+      index: The task index dictionary from the TaskManager.
+      manager: The TaskManager instance.
+      seen: A set of already visited task names to prevent loops.
+
+  Returns:
+      A set of concrete leaf task names.
+  """
+  if name in seen:
+    return set()
+  seen.add(name)
+
+  entry = index.get(name)
+  if entry is None:
+    return set()
+
+  entry_type, subtasks = _get_entry_type_and_subtasks(entry)
+  # Base case: if it is already a leaf task, return it.
+  if entry_type == "task":
+    return {name}
+
+  result = set()
+  if entry_type == "group":
+    # A task list of -1 indicates the group config must be loaded from disk.
+    if subtasks == -1:
+      config = manager._get_config(name)  # pylint: disable=protected-access
+      subtasks = config.get("task", [])
+
+    for item in subtasks:
+      # Group tasks can be listed as raw strings (task name) or dicts
+      # carrying per-child overrides.
+      if isinstance(item, str):
+        child = item
+      elif isinstance(item, dict):
+        child = item.get("task")
+      else:
+        child = None
+
+      if isinstance(child, str):
+        result |= _resolve_subtasks_recursively(child, index, manager, seen)
+
+  elif entry_type == "tag":
+    for child in subtasks:
+      result |= _resolve_subtasks_recursively(child, index, manager, seen)
+
+  return result
 
 
 def configure_lm_eval_slicing(sample_range=None):
@@ -268,6 +380,33 @@ class LmEvalFramework(base.AbstractEvalFramework):
   def supported_task_ids(cls) -> list[str]:
     """Returns a list of all raw task IDs from lm-eval."""
     return list(lm_eval_tasks.TaskManager().all_tasks)
+
+  @classmethod
+  def subtasks_of(cls, task: str) -> list[str]:
+    """Resolves a parent task group or tag to its set of concrete child tasks.
+
+    Queries the TaskManager's internal index to traverse group and tag
+    hierarchies recursively without loading task classes, avoiding premature
+    dataset downloads.
+
+    If the task name is unrecognized, returns an empty list. The returned list
+    only contains expanded subtasks, excluding the input `task` itself.
+
+    Args:
+        task: The name of the group or tag to expand.
+
+    Returns:
+        A sorted list of concrete subtask names belonging to the group/tag.
+    """
+    manager = _lm_eval_task_manager()
+    index = manager.task_index
+
+    if task not in index:
+      return []
+
+    return sorted(
+        _resolve_subtasks_recursively(task, index, manager, seen=set())
+    )
 
   @classmethod
   def supported_runners(cls) -> list[str]:

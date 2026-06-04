@@ -391,6 +391,14 @@ ai-edge-eval list-tasks --framework lm-eval
 ai-edge-eval list-runners --framework lm-eval
 ```
 
+> [!NOTE]
+> **Subtask Allowlisting**: Listing a parent task (e.g., `mmlu`, `bbh`) in the task allowlist implicitly authorizes all of its concrete subtasks. You can run individual subtasks (e.g., `--tasks mmlu_abstract_algebra` for `lm-eval` or `--tasks mmlu:abstract_algebra` for `lighteval`) without needing to list every subtask explicitly.
+>
+> To see the expanded list of subtasks for each parent task in the allowlist, use the `--show-subtasks` flag:
+> ```bash
+> ai-edge-eval list-tasks --framework lm-eval --show-subtasks
+> ```
+
 ---
 
 ## ⚖️ Dataset Licensing and Terms of Use

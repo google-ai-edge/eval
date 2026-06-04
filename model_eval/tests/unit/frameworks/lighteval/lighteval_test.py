@@ -156,6 +156,26 @@ class TestLightEvalAdapter(absltest.TestCase):
         runners, ["accelerate", "custom_a", "custom_b"]
     )
 
+  def test_subtasks_of_expands_suite(self):
+    """Verifies that suite names resolve to colon-separated leaf tasks."""
+    mmlu_subs = lighteval.LightEvalFramework.subtasks_of("mmlu")
+    self.assertIn("mmlu:abstract_algebra", mmlu_subs)
+    # Ensure the result is a non-trivial list of colon-prefixed leaves
+    # rather than groups, so unioning with the parent gives a real
+    # expansion of the allowlist.
+    self.assertTrue(all(":" in s for s in mmlu_subs))
+    self.assertGreater(len(mmlu_subs), 1)
+
+  def test_subtasks_of_unknown_returns_empty(self):
+    """Ensures unrecognized tasks or leaf tasks produce an empty expansion list."""
+    self.assertEqual(
+        lighteval.LightEvalFramework.subtasks_of("not_a_suite"), []
+    )
+    # A concrete leaf is not itself a suite, so it should also return [].
+    self.assertEqual(
+        lighteval.LightEvalFramework.subtasks_of("mmlu:abstract_algebra"), []
+    )
+
 
 if __name__ == "__main__":
   absltest.main()

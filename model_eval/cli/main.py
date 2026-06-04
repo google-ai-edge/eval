@@ -24,6 +24,7 @@ from absl import app
 from absl import flags
 from model_eval.api import pipeline as eval_pipeline
 from model_eval.frameworks import base as framework_base
+from model_eval.frameworks import registry as framework_registry
 from model_eval.runners import base as runners_base
 from model_eval.runners import litert_lm
 import click
@@ -367,7 +368,17 @@ def run_pipeline(ctx):
 @click.option("--framework", default=None)
 @click.option("--task-config", default=None)
 @click.option("--custom-tasks-file", default=None)
-def list_tasks(framework, task_config, custom_tasks_file):
+@click.option(
+    "--show-subtasks",
+    is_flag=True,
+    default=False,
+    help=(
+        "Also print the concrete subtasks each allowlist entry expands to."
+        " Subtasks are implicitly authorized by the parent at run time; this"
+        " flag only changes what is displayed."
+    ),
+)
+def list_tasks(framework, task_config, custom_tasks_file, show_subtasks):
   """Lists supported tasks for a given framework based on the allowlist."""
   _load_custom_tasks(custom_tasks_file)
 
@@ -375,8 +386,14 @@ def list_tasks(framework, task_config, custom_tasks_file):
   allowed_tasks = eval_pipeline._load_task_allowlist(task_config, fw_enum)  # pylint: disable=protected-access
 
   click.echo(f"Supported tasks for framework '{framework}':")
+  framework_impl = (
+      framework_registry.get_framework(fw_enum) if show_subtasks else None
+  )
   for task in sorted(allowed_tasks):
     click.echo(f"  - {task}")
+    if framework_impl is not None:
+      for sub in framework_impl.subtasks_of(task):
+        click.echo(f"      - {sub}")
 
 
 @cli.command(name="list-runners")

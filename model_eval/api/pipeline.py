@@ -71,6 +71,38 @@ def _load_task_allowlist(
   return config.get(str(framework).replace("-", "_"), [])
 
 
+def _expand_allowed_tasks(
+    parents: list[str], framework: framework_base.FrameworkType
+) -> set[str]:
+  """Expands an allowlist so listing a parent implicitly authorizes its subtasks.
+
+  Each parent stays in the result, and every concrete subtask reported by
+  the framework's `subtasks_of` resolver is added too. This lets a user
+  put just `mmlu` (lm-eval) or `bigbench_hard` (lighteval) in
+  `tasks.yaml` and still pass validation when they request a leaf like
+  `mmlu_abstract_algebra` or `bigbench_hard:causal_judgment`.
+
+  Args:
+      parents: The raw allowlist entries (parents and/or concrete tasks).
+      framework: The framework whose `subtasks_of` resolver to consult.
+
+  Returns:
+      The union of the parents and every reachable subtask.
+  """
+  # Nothing to expand when there are no parents — and short-circuiting here
+  # also avoids touching the framework registry, which lets callers with an
+  # invalid framework value reach the downstream validation that diagnoses
+  # that specific failure (e.g. `_validate` for NativeModelConfig).
+  if not parents:
+    return set()
+
+  framework_impl = framework_registry.get_framework(framework)
+  expanded: set[str] = set(parents)
+  for parent in parents:
+    expanded.update(framework_impl.subtasks_of(parent))
+  return expanded
+
+
 def _load_runner_allowlist(
     path: str | None, framework: framework_base.FrameworkType
 ) -> list[str]:
@@ -137,7 +169,11 @@ class EvalPipeline:
     self._model = model
     self._framework = framework
     allowed_tasks = _load_task_allowlist(task_config, framework)
-    unknown = set(tasks) - set(allowed_tasks)
+    # Implicitly authorize every subtask reachable from an allowed parent so
+    # that e.g. listing `mmlu` in tasks.yaml lets a user request the leaf
+    # `mmlu_abstract_algebra` without enumerating each subtask.
+    expanded_allowed = _expand_allowed_tasks(allowed_tasks, framework)
+    unknown = set(tasks) - expanded_allowed
     if unknown:
       raise ValueError(
           f"Tasks not in allowlist: {sorted(unknown)}. Pass task_config= to"

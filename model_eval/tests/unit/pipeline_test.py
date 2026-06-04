@@ -60,6 +60,56 @@ class EvalPipelineTest(absltest.TestCase):
           output_dir=self.output_dir,
       )
 
+  @mock.patch("model_eval.api.pipeline._load_runner_allowlist")
+  @mock.patch("model_eval.api.pipeline._load_task_allowlist")
+  def test_subtask_authorized_by_parent_in_allowlist(
+      self, mock_load_task, mock_load_runner
+  ):
+    """Ensures a subtask is permitted if its parent group is allowlisted."""
+    mock_load_task.return_value = ["mmlu"]
+    mock_load_runner.return_value = ["native"]
+    with mock.patch.object(
+        pipeline.framework_registry,
+        "get_framework",
+    ) as mock_get_framework:
+      mock_fw = mock.MagicMock()
+      mock_fw.subtasks_of.return_value = ["mmlu_abstract_algebra"]
+      mock_get_framework.return_value = mock_fw
+
+      p = pipeline.EvalPipeline(
+          model="test_model",
+          tasks=("mmlu_abstract_algebra",),
+          framework=framework_base.FrameworkType.LM_EVAL,
+          eval_args={"apply_chat_template": True},
+          output_dir=self.output_dir,
+      )
+    self.assertEqual(p._tasks, ["mmlu_abstract_algebra"])
+
+  @mock.patch("model_eval.api.pipeline._load_runner_allowlist")
+  @mock.patch("model_eval.api.pipeline._load_task_allowlist")
+  def test_unrelated_task_still_rejected_with_subtask_expansion(
+      self, mock_load_task, mock_load_runner
+  ):
+    """Confirms that unauthorized tasks remain blocked under subtask expansion."""
+    mock_load_task.return_value = ["mmlu"]
+    mock_load_runner.return_value = ["native"]
+    with mock.patch.object(
+        pipeline.framework_registry,
+        "get_framework",
+    ) as mock_get_framework:
+      mock_fw = mock.MagicMock()
+      mock_fw.subtasks_of.return_value = ["mmlu_abstract_algebra"]
+      mock_get_framework.return_value = mock_fw
+
+      with self.assertRaisesRegex(ValueError, "Tasks not in allowlist"):
+        pipeline.EvalPipeline(
+            model="test_model",
+            tasks=("gsm8k",),
+            framework=framework_base.FrameworkType.LM_EVAL,
+            eval_args={"apply_chat_template": True},
+            output_dir=self.output_dir,
+        )
+
   @mock.patch(
       "model_eval.api.pipeline._load_runner_allowlist"
   )

@@ -257,6 +257,24 @@ class TestLmEvalAdapter(unittest.TestCase):
       runners = lm_eval.LmEvalFramework.supported_runners()
       self.assertEqual(runners, ["custom_a", "custom_b", "native_c"])
 
+  def test_subtasks_of_group_descends_through_tag(self):
+    """Verifies that group expansion successfully traverses tag references.
+
+    Ensures the resolver correctly navigates both direct group-to-task links
+    and indirect tag associations. For example, 'mmlu' must resolve to leaves
+    like 'mmlu_abstract_algebra' by following the path from the 'mmlu_stem'
+    group to the 'mmlu_stem_tasks' tag and down to the tagged leaf task.
+    """
+    subs = lm_eval.LmEvalFramework.subtasks_of("mmlu")
+    self.assertIn("mmlu_abstract_algebra", subs)
+    # Leaves come from multiple mmlu_*_tasks tags, so we expect a sizable
+    # expansion rather than just the four direct children.
+    self.assertGreater(len(subs), 10)
+
+  def test_subtasks_of_unknown_returns_empty(self):
+    """Verifies that unrecognized task names or leaf tasks do not expand further."""
+    self.assertEqual(lm_eval.LmEvalFramework.subtasks_of("not_a_task"), [])
+
 
 if __name__ == "__main__":
   unittest.main()

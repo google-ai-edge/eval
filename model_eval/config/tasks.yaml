@@ -21,8 +21,7 @@ lm_eval:
   # Scoring tasks:
   - mmlu
   - hellaswag
-  - arc_easy
-  - arc_challenge
+  - ai2_arc
   - winogrande
   - piqa
 
@@ -32,6 +31,5 @@ lighteval:
   - ifeval
   # Scoring tasks:
   - mmlu
-  - arc:easy
-  - arc:challenge
+  - arc
   - winogrande
