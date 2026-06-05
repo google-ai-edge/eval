@@ -52,8 +52,18 @@ class _ChatRequest(pydantic.BaseModel):
   model: str
   # Body of the request, including the user query and any preface messages.
   messages: list[_ChatMessage]
-  # passed as SamplerConfig(temperature=...) to create_conversation()
+  # The temperature to use for sampling.
   temperature: float = 0.0
+  # The number of top logits used during sampling.
+  top_k: int | None = None
+  # The cumulative probability threshold for nucleus sampling.
+  # Note: If both `top_k` and `top_p` are set, LiteRT LM applies them in
+  # combination. It first truncates candidates to the top-k highest logits,
+  # re-normalizes their probabilities via softmax (with `temperature`), and
+  # then performs top-p sampling strictly within that truncated top-k subset.
+  top_p: float | None = None
+  # The seed to use for randomization.
+  seed: int | None = None
   # Applied server-side after send_message() returns;
   # truncates at earliest matching stop sequence.
   stop: list[str] | str | None = None
@@ -190,7 +200,12 @@ def build_app(engine: Any, config: base.RunnerConfig) -> fastapi.FastAPI:
       preface = None
       query = messages[0] if messages else {"role": "user", "content": ""}
 
-    sampler_config = litert_lm.SamplerConfig(temperature=req.temperature)
+    sampler_config = litert_lm.SamplerConfig(
+        temperature=req.temperature,
+        top_k=req.top_k,
+        top_p=req.top_p,
+        seed=req.seed,
+    )
     with engine.create_conversation(
         messages=preface, sampler_config=sampler_config
     ) as conv:

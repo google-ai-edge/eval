@@ -90,7 +90,47 @@ class TestLiteRTLMServer(unittest.TestCase):
     )
 
     self.assertEqual(response.status_code, 200)
-    mock_sampler_config_class.assert_called_once_with(temperature=0.8)
+    mock_sampler_config_class.assert_called_once_with(
+        temperature=0.8, top_k=None, top_p=None, seed=None
+    )
+    self.mock_engine.create_conversation.assert_called_once_with(
+        messages=None, sampler_config=mock_sampler_config_instance
+    )
+
+  @mock.patch(
+      "model_eval.runners.litert_lm._litert_lm_server.litert_lm.SamplerConfig"
+  )
+  def test_chat_completions_sampler_config_all_params(
+      self, mock_sampler_config_class
+  ):
+    """Tests that chat completions endpoint correctly propagates all sampler config parameters."""
+    mock_conv = mock.MagicMock()
+    self.mock_engine.create_conversation.return_value.__enter__.return_value = (
+        mock_conv
+    )
+    mock_sampler_config_instance = mock.MagicMock()
+    mock_sampler_config_class.return_value = mock_sampler_config_instance
+    mock_conv.send_message.return_value = {
+        "role": "model",
+        "content": [{"type": "text", "text": "Testing all params"}],
+    }
+
+    response = self.client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "temperature": 0.7,
+            "top_k": 50,
+            "top_p": 0.9,
+            "seed": 42,
+        },
+    )
+
+    self.assertEqual(response.status_code, 200)
+    mock_sampler_config_class.assert_called_once_with(
+        temperature=0.7, top_k=50, top_p=0.9, seed=42
+    )
     self.mock_engine.create_conversation.assert_called_once_with(
         messages=None, sampler_config=mock_sampler_config_instance
     )
