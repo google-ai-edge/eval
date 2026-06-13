@@ -15,6 +15,7 @@
 """Export custom task layer modules."""
 
 from model_eval.custom_tasks import base
+from model_eval.custom_tasks import metrics
 from model_eval.custom_tasks import registry
 
 OpenAIMessages = base.OpenAIMessages
@@ -22,9 +23,31 @@ CustomTask = base.CustomTask
 DatasetRow = base.DatasetRow
 TaskRegistry = registry.TaskRegistry
 
+# Metrics re-exports.
+register_metric = metrics.register_metric
+get_metric = metrics.get_metric
+list_metrics = metrics.list_metrics
+clear_metrics = metrics.clear_metrics
+compose = metrics.compose
+
+# Normalizer re-exports.
+register_normalizer = metrics.register_normalizer
+get_normalizer = metrics.get_normalizer
+list_normalizers = metrics.list_normalizers
+clear_normalizers = metrics.clear_normalizers
+
 __all__ = [
     "OpenAIMessages",
     "CustomTask",
     "DatasetRow",
     "TaskRegistry",
+    "register_metric",
+    "get_metric",
+    "list_metrics",
+    "clear_metrics",
+    "compose",
+    "register_normalizer",
+    "get_normalizer",
+    "list_normalizers",
+    "clear_normalizers",
 ]

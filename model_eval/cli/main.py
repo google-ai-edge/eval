@@ -421,6 +421,15 @@ def list_runners(framework, runner_config):
     click.echo(f"  - {runner}")
 
 
+@cli.command(name="list-metrics")
+def list_metrics_cmd():
+  """Lists all registered metric names."""
+  from model_eval.custom_tasks.metrics import list_metrics  # pylint: disable=g-import-not-at-top
+
+  for name in list_metrics():
+    click.echo(name)
+
+
 @cli.command("list-args")
 @click.option("--runner", default=None)
 @click.option("--framework", default=None)
