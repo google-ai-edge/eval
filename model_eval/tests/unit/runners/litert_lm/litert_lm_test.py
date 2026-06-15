@@ -100,6 +100,9 @@ class TestLiteRtLmRunner(unittest.TestCase):
 
     runner.stop()
 
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.set_min_log_severity"
+  )
   @mock.patch("model_eval.runners.base.requests.post")
   @mock.patch(
       "model_eval.runners.litert_lm.litert_lm.threading.Thread"
@@ -128,6 +131,7 @@ class TestLiteRtLmRunner(unittest.TestCase):
       mock_uvicorn_server,
       mock_thread,
       mock_post,
+      mock_set_min_log_severity,
   ):
     mock_post.return_value.json.return_value = {
         "choices": [{"score": 0.9, "logprobs": []}]
@@ -156,6 +160,9 @@ class TestLiteRtLmRunner(unittest.TestCase):
     )
     runner.stop()
 
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.set_min_log_severity"
+  )
   @mock.patch("model_eval.runners.base.requests.post")
   @mock.patch(
       "model_eval.runners.litert_lm.litert_lm.threading.Thread"
@@ -184,6 +191,7 @@ class TestLiteRtLmRunner(unittest.TestCase):
       mock_uvicorn_server,
       mock_thread,
       mock_post,
+      mock_set_min_log_severity,
   ):
     mock_post.return_value.json.return_value = {
         "choices": [{"score": 0.9, "logprobs": []}]
@@ -207,7 +215,6 @@ class TestLiteRtLmRunner(unittest.TestCase):
         enable_speculative_decoding=True,
     )
     runner.stop()
-
 
   def test_clamp_log_severity(self):
     self.assertEqual(
@@ -264,23 +271,25 @@ class TestLiteRtLmRunner(unittest.TestCase):
       )
 
   @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.set_min_log_severity"
+  )
+  @mock.patch(
       "model_eval.runners.litert_lm.litert_lm.os.path.exists"
   )
   @mock.patch("huggingface_hub.hf_hub_download")
   @mock.patch(
       "model_eval.runners.litert_lm.litert_lm.litert_lm.Engine"
   )
-  def test_hf_path_resolution(self, mock_engine, mock_download, mock_exists):
+  def test_hf_path_resolution(
+      self, mock_engine, mock_download, mock_exists, mock_set_min_log_severity
+  ):
     mock_exists.return_value = False
     mock_download.return_value = "/cached/download/model.litertlm"
     config = litert_lm.LiteRtLmRunner.Config(
         runner_type="litert-lm", model_path="org/model/file.litertlm"
     )
     runner = litert_lm.LiteRtLmRunner(config)
-    try:
-      runner.start()
-    except Exception:  # pylint: disable=broad-except
-      pass
+    runner.start()
     mock_download.assert_called_once_with(
         repo_id="org/model", filename="file.litertlm"
     )
@@ -291,6 +300,9 @@ class TestLiteRtLmRunner(unittest.TestCase):
     )
 
   @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.set_min_log_severity"
+  )
+  @mock.patch(
       "model_eval.runners.litert_lm.litert_lm.os.path.exists"
   )
   @mock.patch("huggingface_hub.hf_hub_download")
@@ -298,17 +310,14 @@ class TestLiteRtLmRunner(unittest.TestCase):
       "model_eval.runners.litert_lm.litert_lm.litert_lm.Engine"
   )
   def test_absolute_path_resolution(
-      self, mock_engine, mock_download, mock_exists
+      self, mock_engine, mock_download, mock_exists, mock_set_min_log_severity
   ):
     mock_exists.return_value = False
     config = litert_lm.LiteRtLmRunner.Config(
         runner_type="litert-lm", model_path="/Users/foo/bar/model.litertlm"
     )
     runner = litert_lm.LiteRtLmRunner(config)
-    try:
-      runner.start()
-    except Exception:  # pylint: disable=broad-except
-      pass
+    runner.start()
     mock_download.assert_not_called()
     mock_engine.assert_called_once_with(
         "/Users/foo/bar/model.litertlm",
