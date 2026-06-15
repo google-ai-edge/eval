@@ -70,7 +70,10 @@ class TestLiteRtLmRunner(unittest.TestCase):
     )
     runner = litert_lm.LiteRtLmRunner(config)
     self.assertIs(runner._config, config)
-    with mock.patch("os.path.exists", return_value=True):
+    with mock.patch(
+        "model_eval.runners.litert_lm.litert_lm.os.path.exists",
+        return_value=True,
+    ):
       runner.start()
 
     # Verify Engine was initialized correctly.
@@ -145,7 +148,10 @@ class TestLiteRtLmRunner(unittest.TestCase):
         audio_backend="cpu",
     )
     runner = litert_lm.LiteRtLmRunner(config)
-    with mock.patch("os.path.exists", return_value=True):
+    with mock.patch(
+        "model_eval.runners.litert_lm.litert_lm.os.path.exists",
+        return_value=True,
+    ):
       runner.start()
     mock_engine.assert_called_once_with(
         "/path/to/model",
@@ -204,7 +210,10 @@ class TestLiteRtLmRunner(unittest.TestCase):
         enable_speculative_decoding=True,
     )
     runner = litert_lm.LiteRtLmRunner(config)
-    with mock.patch("os.path.exists", return_value=True):
+    with mock.patch(
+        "model_eval.runners.litert_lm.litert_lm.os.path.exists",
+        return_value=True,
+    ):
       runner.start()
 
     # Verify Engine was initialized correctly with enable_speculative_decoding.

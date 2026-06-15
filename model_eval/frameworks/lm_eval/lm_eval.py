@@ -15,6 +15,7 @@
 """lm-eval framework evaluation adapter for ai_edge_eval."""
 
 import functools
+import inspect
 from typing import Any
 import warnings
 
@@ -482,7 +483,6 @@ class LmEvalFramework(base.AbstractEvalFramework):
         The parameter key corresponding to the model path/weights ('pretrained'
         or 'model'). Defaults to 'pretrained'.
     """
-    import inspect  # pylint: disable=g-import-not-at-top
     from lm_eval.api import registry as lm_eval_registry  # pylint: disable=g-import-not-at-top
 
     try:

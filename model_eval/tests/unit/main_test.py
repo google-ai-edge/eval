@@ -102,7 +102,7 @@ class MainTest(parameterized.TestCase):
     res = main._parse_csv_args("data=[{'a': 1}, {'b': 2}]")
     self.assertEqual(res, {"data": [{"a": 1}, {"b": 2}]})
 
-  @mock.patch("importlib.import_module")
+  @mock.patch("model_eval.cli.main.importlib.import_module")
   @mock.patch(
       "model_eval.cli.main.eval_pipeline.EvalPipeline"
   )

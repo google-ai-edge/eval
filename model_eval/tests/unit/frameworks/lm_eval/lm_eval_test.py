@@ -128,7 +128,9 @@ class TestLmEvalAdapter(unittest.TestCase):
     self.mock_runner.returns_greedy = False
     framework = lm_eval.LmEvalFramework()
 
-    with mock.patch("warnings.warn") as mock_warn:
+    with mock.patch(
+        "model_eval.frameworks.lm_eval.lm_eval.warnings.warn"
+    ) as mock_warn:
       framework.evaluate(
           self.mock_runner, ["task3"], eval_args={"apply_chat_template": True}
       )
@@ -220,7 +222,9 @@ class TestLmEvalAdapter(unittest.TestCase):
     with self.assertRaises(NotImplementedError):
       lm_eval.LmEvalFramework.describe_native_runner_args("non_existent_runner")
 
-  @mock.patch("inspect.signature")
+  @mock.patch(
+      "model_eval.frameworks.lm_eval.lm_eval.inspect.signature"
+  )
   @mock.patch("lm_eval.api.registry")
   @mock.patch(
       "model_eval.frameworks.lm_eval.lm_eval.lm_eval"
