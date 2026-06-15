@@ -15,6 +15,7 @@
 """ai_edge_eval CLI module."""
 
 import importlib
+import importlib.util
 import json
 import os
 import pathlib
@@ -119,14 +120,30 @@ def _build_model_config(
   )
 
 
-def _load_custom_tasks(custom_tasks_file: str | None) -> None:
-  """Loads custom tasks from a python file."""
-  if custom_tasks_file:
-    path = pathlib.Path(custom_tasks_file)
-    if str(path.parent.resolve()) not in sys.path:
-      sys.path.insert(0, str(path.parent.resolve()))
-    mod_name = path.stem
-    importlib.import_module(mod_name)
+def _load_custom_tasks(custom_tasks_files: Any) -> None:
+  """Loads custom tasks from Python registrar scripts and/or YAML catalogs."""
+  files = (
+      (custom_tasks_files,)
+      if isinstance(custom_tasks_files, str)
+      else tuple(custom_tasks_files or ())
+  )
+  py_files = [f for f in files if not f.endswith((".yaml", ".yml"))]
+  yaml_files = [f for f in files if f.endswith((".yaml", ".yml"))]
+
+  for f in py_files:
+    path = pathlib.Path(f).resolve()
+    module_name = f"custom_task_module_{path.stem}"
+    spec = importlib.util.spec_from_file_location(module_name, str(path))
+    if spec is not None and spec.loader is not None:
+      module = importlib.util.module_from_spec(spec)
+      spec.loader.exec_module(module)
+    else:
+      raise ImportError(f"Could not load custom tasks from {f}")
+
+  from model_eval.custom_tasks import catalog  # pylint: disable=g-import-not-at-top
+
+  for f in yaml_files:
+    catalog.register_catalog(f)
 
 
 def _execute_eval(
@@ -284,8 +301,13 @@ def _validate_limit(ctx, param, value):
 )
 @click.option(
     "--custom-tasks-file",
-    default=None,
-    help="Python file that registers custom tasks",
+    multiple=True,
+    default=(),
+    help=(
+        "Python file(s) registering custom tasks/metrics/loaders, and/or .yaml"
+        " catalog(s). All .py are loaded before all .yaml so catalog"
+        " name-references resolve."
+    ),
 )
 @click.option(
     "--eval-args",
@@ -378,7 +400,15 @@ def run_pipeline(ctx):
 @cli.command(name="list-tasks")
 @click.option("--framework", default=None)
 @click.option("--task-config", default=None)
-@click.option("--custom-tasks-file", default=None)
+@click.option(
+    "--custom-tasks-file",
+    multiple=True,
+    default=(),
+    help=(
+        "Python file(s) registering custom tasks/metrics/loaders, and/or .yaml"
+        " catalog(s)."
+    ),
+)
 @click.option(
     "--show-subtasks",
     is_flag=True,
@@ -419,6 +449,24 @@ def list_runners(framework, runner_config):
   click.echo(f"Supported runners for framework '{framework}':")
   for runner in sorted(allowed_runners):
     click.echo(f"  - {runner}")
+
+
+@cli.command(name="list-metrics")
+def list_metrics_cmd():
+  """Lists all registered metric names."""
+  from model_eval.custom_tasks.metrics import list_metrics  # pylint: disable=g-import-not-at-top
+
+  for name in list_metrics():
+    click.echo(name)
+
+
+@cli.command(name="list-loaders")
+def list_loaders_cmd():
+  """Lists all registered dataset loader names."""
+  from model_eval.custom_tasks.loaders import list_loaders  # pylint: disable=g-import-not-at-top
+
+  for name in list_loaders():
+    click.echo(name)
 
 
 @cli.command("list-args")

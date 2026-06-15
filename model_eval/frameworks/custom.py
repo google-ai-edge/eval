@@ -20,11 +20,13 @@ from typing import Any
 from model_eval import config
 from model_eval.api import constants as api_constants
 from model_eval.custom_tasks import base as tasks_base
+from model_eval.custom_tasks import groups
 from model_eval.custom_tasks import loaders
 from model_eval.custom_tasks import registry as tasks_registry
 from model_eval.frameworks import base
 from model_eval.frameworks import registry
 from model_eval.runners import base as runners_base
+from model_eval.runners import registry as runner_registry
 from model_eval.utils import introspection
 import httpx
 import tqdm
@@ -137,11 +139,15 @@ class CustomFramework(base.AbstractEvalFramework):
       raise ValueError("Only one of 'limit' or 'samples' can be set, not both.")
 
     reg = tasks_registry.TaskRegistry.global_registry()
+    resolved_tasks = {}
+    for name in tasks:
+      for t in reg.get_tasks(name):
+        resolved_tasks[t.name] = t
+
     all_results = {}
     all_samples = {}
     with httpx.Client(timeout=120.0) as http_client:
-      for name in tasks:
-        task = reg.get_task(name)
+      for name, task in resolved_tasks.items():
         all_results[name], all_samples[name] = self._run_task(
             runner,
             task,
@@ -285,10 +291,18 @@ class CustomFramework(base.AbstractEvalFramework):
     return reg.get_all_tasks()
 
   @classmethod
+  def subtasks_of(cls, task: str) -> list[str]:
+    """Expands a group prefix or task name into allowed leaf subtask names."""
+    reg = tasks_registry.TaskRegistry.global_registry()
+    task_names = reg.get_all_tasks()
+
+    if groups.is_group(task, task_names):
+      return groups.subtasks_of(task, task_names)
+    return super().subtasks_of(task)
+
+  @classmethod
   def supported_runners(cls) -> list[str]:
     """Returns a list of all registered custom runners supported by the custom framework."""
-    from model_eval.runners import registry as runner_registry  # pylint: disable=g-import-not-at-top
-
     return runner_registry.get_all_runners()
 
   @classmethod
