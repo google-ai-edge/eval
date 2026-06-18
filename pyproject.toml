@@ -32,7 +32,7 @@ dependencies = [
     "huggingface_hub",
     "immutabledict",
     "langdetect",
-    "litert_lm",
+    "litert-lm",
     "lm_eval>=0.4",
     "pydantic>=2.0",
     "pyyaml>=6.0",
