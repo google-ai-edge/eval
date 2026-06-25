@@ -281,6 +281,7 @@ class EvalPipelineTest(absltest.TestCase):
             "host": "127.0.0.1",
             "max_num_tokens": 4096,
             "enable_speculative_decoding": None,
+            "activation_data_type": None,
             "model_name": "litert-lm-model",
             "min_log_severity": 1000,
             "always_return_not_greedy": True,

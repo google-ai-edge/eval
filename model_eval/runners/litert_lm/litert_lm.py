@@ -93,6 +93,20 @@ def _parse_backend(backend_str: str) -> litert_lm.Backend:
     )
 
 
+def _parse_activation_data_type(
+    activation_data_type: str,
+) -> litert_lm.ActivationDataType | None:
+  """Parses a string activation data type to the litert_lm.ActivationDataType."""
+  valid_types = ["fp32", "fp16"]
+  if activation_data_type not in valid_types:
+    raise ValueError(
+        f"Unsupported activation data type: '{activation_data_type}'. "
+        f"Must be one of {valid_types} or a "
+        "litert_lm.ActivationDataType instance."
+    )
+  return litert_lm.ActivationDataType.from_str(activation_data_type)
+
+
 def _clamp_log_severity(severity: int) -> litert_lm.LogSeverity:
   """Clamps a given log severity level to the supported litert_lm.LogSeverity."""
   if severity <= 0:
@@ -125,6 +139,8 @@ class LiteRtLmRunner(base.AbstractRunner):
     max_num_tokens: int = 4096
     # Whether to enable speculative decoding.
     enable_speculative_decoding: bool | None = None
+    # Optional activation data type to use for the model (e.g. 'fp32', 'fp16').
+    activation_data_type: str | None = None
     # Host for the runner's server.
     host: str = "127.0.0.1"
     # Port for the runner's server.
@@ -191,6 +207,10 @@ class LiteRtLmRunner(base.AbstractRunner):
     if self._config.enable_speculative_decoding is not None:
       engine_kwargs["enable_speculative_decoding"] = (
           self._config.enable_speculative_decoding
+      )
+    if self._config.activation_data_type is not None:
+      engine_kwargs["activation_data_type"] = _parse_activation_data_type(
+          self._config.activation_data_type
       )
 
     # Resolve the model path (download from HuggingFace if necessary).

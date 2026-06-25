@@ -334,6 +334,142 @@ class TestLiteRtLmRunner(unittest.TestCase):
         max_num_tokens=mock.ANY,
     )
 
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.set_min_log_severity"
+  )
+  @mock.patch("model_eval.runners.base.requests.post")
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.threading.Thread"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.uvicorn.Server"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.uvicorn.Config"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm._litert_lm_server.build_app"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm._litert_lm_server.wait_for_server"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.Engine"
+  )
+  def test_initialization_with_activation_data_type_string(
+      self,
+      mock_engine,
+      mock_wait_for_server,
+      mock_build_app,
+      mock_uvicorn_config,
+      mock_uvicorn_server,
+      mock_thread,
+      mock_post,
+      mock_set_min_log_severity,
+  ):
+    mock_post.return_value.json.return_value = {
+        "choices": [{"score": 0.9, "logprobs": []}]
+    }
+    config = litert_lm.LiteRtLmRunner.Config(
+        runner_type="litert-lm",
+        model_path="/path/to/model",
+        model_name="my-test-model",
+        backend="cpu",
+        activation_data_type="fp16",
+    )
+    runner = litert_lm.LiteRtLmRunner(config)
+    with mock.patch(
+        "model_eval.runners.litert_lm.litert_lm.os.path.exists",
+        return_value=True,
+    ):
+      runner.start()
+    mock_engine.assert_called_once_with(
+        "/path/to/model",
+        backend=litert_lm._resolve_backend(litert_lm.litert_lm.Backend.CPU),
+        max_num_tokens=4096,
+        activation_data_type=litert_lm.litert_lm.ActivationDataType.FLOAT16,
+    )
+    runner.stop()
+
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.set_min_log_severity"
+  )
+  @mock.patch("model_eval.runners.base.requests.post")
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.threading.Thread"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.uvicorn.Server"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.uvicorn.Config"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm._litert_lm_server.build_app"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm._litert_lm_server.wait_for_server"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.Engine"
+  )
+  def test_initialization_with_activation_data_type_enum(
+      self,
+      mock_engine,
+      mock_wait_for_server,
+      mock_build_app,
+      mock_uvicorn_config,
+      mock_uvicorn_server,
+      mock_thread,
+      mock_post,
+      mock_set_min_log_severity,
+  ):
+    mock_post.return_value.json.return_value = {
+        "choices": [{"score": 0.9, "logprobs": []}]
+    }
+    config = litert_lm.LiteRtLmRunner.Config(
+        runner_type="litert-lm",
+        model_path="/path/to/model",
+        model_name="my-test-model",
+        backend="cpu",
+        activation_data_type="fp32",
+    )
+    runner = litert_lm.LiteRtLmRunner(config)
+    with mock.patch(
+        "model_eval.runners.litert_lm.litert_lm.os.path.exists",
+        return_value=True,
+    ):
+      runner.start()
+    mock_engine.assert_called_once_with(
+        "/path/to/model",
+        backend=litert_lm._resolve_backend(litert_lm.litert_lm.Backend.CPU),
+        max_num_tokens=4096,
+        activation_data_type=litert_lm.litert_lm.ActivationDataType.FLOAT32,
+    )
+    runner.stop()
+
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.set_min_log_severity"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.os.path.exists"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.Engine"
+  )
+  def test_initialization_with_invalid_activation_data_type(
+      self, mock_engine, mock_exists, mock_set_min_log_severity
+  ):
+    mock_exists.return_value = True
+    config = litert_lm.LiteRtLmRunner.Config(
+        runner_type="litert-lm",
+        model_path="/path/to/model",
+        activation_data_type="invalid_type",
+    )
+    runner = litert_lm.LiteRtLmRunner(config)
+    with self.assertRaisesRegex(ValueError, "Unsupported activation data type"):
+      runner.start()
+
 
 if __name__ == "__main__":
   unittest.main()
