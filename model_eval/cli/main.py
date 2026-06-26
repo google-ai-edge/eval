@@ -16,9 +16,20 @@
 
 import importlib
 import json
+import os
 import pathlib
 import sys
 from typing import Any
+
+if sys.platform == "darwin":
+  import multiprocessing  # pylint: disable=unused-import,g-import-not-at-top
+  # Disable macOS fork safety check to prevent crashes when calling Metal/GPU
+  # acceleration libraries.
+  os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
+  # Force multiprocessing start method to 'fork' to ensure compatibility with
+  # lighteval's nested functions. This is not ideal as fork() may be unsafe
+  # when combining with other multithreaded libraries.
+  multiprocessing.set_start_method("fork", force=True)
 
 from absl import app
 from absl import flags

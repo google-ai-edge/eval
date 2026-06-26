@@ -160,6 +160,21 @@ class MainTest(parameterized.TestCase):
       self.assertIn("Supported runners for framework 'lm-eval':", result.output)
       self.assertIn("- my_custom_runner", result.output)
 
+  @mock.patch("sys.platform", "darwin")
+  @mock.patch("multiprocessing.set_start_method")
+  def test_multiprocessing_set_start_method_fork_on_mac(self, mock_set_start_method):
+    import importlib
+    # Reload main module to run module-level initialization code
+    importlib.reload(main)
+    mock_set_start_method.assert_called_once_with("fork", force=True)
+
+  @mock.patch("sys.platform", "linux")
+  @mock.patch("multiprocessing.set_start_method")
+  def test_multiprocessing_set_start_method_default_on_non_mac(self, mock_set_start_method):
+    import importlib
+    importlib.reload(main)
+    mock_set_start_method.assert_not_called()
+
 
 if __name__ == "__main__":
   unittest.main()
