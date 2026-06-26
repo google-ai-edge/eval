@@ -73,6 +73,8 @@ class TestLightEvalAdapter(absltest.TestCase):
         "config": {"model": "accelerate"},
     }
     mock_pipeline.evaluation_tracker.details = {}
+    mock_litellm_config_cls.return_value.cache_dir = "/tmp"
+    mock_litellm_config_cls.return_value.base_url = "http://127.0.0.1:8080"
 
     framework = lighteval.LightEvalFramework()
     config = base.NativeModelConfig(
