@@ -469,6 +469,22 @@ class TestLiteRtLmRunner(unittest.TestCase):
     runner = litert_lm.LiteRtLmRunner(config)
     with self.assertRaisesRegex(ValueError, "Unsupported activation data type"):
       runner.start()
+  def test_capabilities_enable_scoring(self):
+    # Default is True
+    config_default = litert_lm.LiteRtLmRunner.Config(
+        runner_type="litert-lm", model_path="/foo"
+    )
+    runner_default = litert_lm.LiteRtLmRunner(config_default)
+    self.assertTrue(runner_default.capabilities.text_scoring)
+    self.assertFalse(runner_default.capabilities.multimodal_scoring)
+
+    # Set to False
+    config_disabled = litert_lm.LiteRtLmRunner.Config(
+        runner_type="litert-lm", model_path="/foo", enable_scoring=False
+    )
+    runner_disabled = litert_lm.LiteRtLmRunner(config_disabled)
+    self.assertFalse(runner_disabled.capabilities.text_scoring)
+    self.assertFalse(runner_disabled.capabilities.multimodal_scoring)
 
 
 if __name__ == "__main__":

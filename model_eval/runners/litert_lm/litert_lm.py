@@ -156,6 +156,8 @@ class LiteRtLmRunner(base.AbstractRunner):
     min_log_severity: int = 1000
     # Whether to skip the slow run_decode step for greedy verification.
     always_return_not_greedy: bool = True
+    # Whether to enable text and multimodal scoring.
+    enable_scoring: bool = True
 
     @classmethod
     def from_unified_args(
@@ -267,7 +269,7 @@ class LiteRtLmRunner(base.AbstractRunner):
   @property
   def capabilities(self) -> base.RunnerCapabilities:
     return base.RunnerCapabilities(
-        text_scoring=True,
+        text_scoring=self._config.enable_scoring,
         text_generation=True,
         multimodal_scoring=False,
         multimodal_generation=True,

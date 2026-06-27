@@ -285,6 +285,7 @@ class EvalPipelineTest(absltest.TestCase):
             "model_name": "litert-lm-model",
             "min_log_severity": 1000,
             "always_return_not_greedy": True,
+            "enable_scoring": True,
         },
     )
 
@@ -293,12 +294,12 @@ class EvalPipelineTest(absltest.TestCase):
     metric_files = [f for f in files if f.endswith("_metrics.jsonl")]
     sample_files = [f for f in files if f.endswith("_samples.jsonl")]
 
-    self.assertEqual(len(metric_files), 1)
-    self.assertEqual(len(sample_files), 1)
+    self.assertLen(metric_files, 1)
+    self.assertLen(sample_files, 1)
 
     with open(os.path.join(self.output_dir, metric_files[0]), "r") as f:
       lines = f.readlines()
-      self.assertEqual(len(lines), 2)
+      self.assertLen(lines, 2)
       data = json.loads(lines[0])
       self.assertEqual(data["task"], "mmlu")
       self.assertEqual(data["metric"], "acc")
