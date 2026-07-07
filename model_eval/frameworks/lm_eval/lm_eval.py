@@ -183,12 +183,12 @@ def configure_lm_eval_slicing(sample_range=None):
       # None.
       kwargs["limit"] = None
 
-      return lm_eval_task.Task._original_doc_iterator(
+      return lm_eval_task.Task._original_doc_iterator(  # pyrefly: ignore[missing-attribute]
           self_instance, *args, **kwargs
       )
     else:
       # If no sample_range is configured, just fall back to the original logic
-      return lm_eval_task.Task._original_doc_iterator(
+      return lm_eval_task.Task._original_doc_iterator(  # pyrefly: ignore[missing-attribute]
           self_instance, *args, **kwargs
       )
 

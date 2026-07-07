@@ -44,7 +44,7 @@ class LocalChatScoreModel(openai_completions.LocalChatCompletion):
         **kwargs,
     )
 
-  def loglikelihood(
+  def loglikelihood(  # pyrefly: ignore[bad-override]
       self, requests: list[Any], disable_tqdm: bool = False
   ) -> list[tuple[float, bool]]:
     results = []

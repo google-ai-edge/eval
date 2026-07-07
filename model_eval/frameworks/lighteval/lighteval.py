@@ -116,7 +116,7 @@ def configure_lighteval_slicing(
       #
       # It is guaranteed to return a standard Python list (`list[Doc]`)
       # containing the first `end` fully processed evaluation samples.
-      docs = lighteval_task.LightevalTask._original_get_docs(
+      docs = lighteval_task.LightevalTask._original_get_docs(  # pyrefly: ignore[missing-attribute]
           self_instance, end + 1, *args, **kwargs
       )
       if start > len(docs):
@@ -146,18 +146,18 @@ def configure_lighteval_slicing(
         # Once the fully processed list (`list[Doc]`) is returned, we calculate
         # the slice count based on the actual length (`int(len(docs) * limit)`)
         # and return the leading fraction of evaluation samples.
-        docs = lighteval_task.LightevalTask._original_get_docs(
+        docs = lighteval_task.LightevalTask._original_get_docs(  # pyrefly: ignore[missing-attribute]
             self_instance, None, *args, **kwargs
         )
         end = max(int(len(docs) * limit), 1)
         return docs[:end]
       else:
-        return lighteval_task.LightevalTask._original_get_docs(
+        return lighteval_task.LightevalTask._original_get_docs(  # pyrefly: ignore[missing-attribute]
             self_instance, limit, *args, **kwargs
         )
     else:
       # If no sample_range is configured, just fall back to the original logic.
-      return lighteval_task.LightevalTask._original_get_docs(
+      return lighteval_task.LightevalTask._original_get_docs(  # pyrefly: ignore[missing-attribute]
           self_instance, max_samples, *args, **kwargs
       )
 

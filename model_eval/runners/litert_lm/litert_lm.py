@@ -81,11 +81,11 @@ def _parse_backend(backend_str: str) -> litert_lm.Backend:
     return backend_str
   backend_upper = backend_str.upper()
   if backend_upper == "CPU":
-    return _resolve_backend(litert_lm.Backend.CPU)
+    return _resolve_backend(litert_lm.Backend.CPU)  # pyrefly: ignore[missing-attribute]
   elif backend_upper == "GPU":
-    return _resolve_backend(litert_lm.Backend.GPU)
+    return _resolve_backend(litert_lm.Backend.GPU)  # pyrefly: ignore[missing-attribute]
   elif backend_upper == "NPU":
-    return _resolve_backend(litert_lm.Backend.NPU)
+    return _resolve_backend(litert_lm.Backend.NPU)  # pyrefly: ignore[missing-attribute]
   else:
     valid_backends = ["CPU", "GPU", "NPU"]
     raise ValueError(

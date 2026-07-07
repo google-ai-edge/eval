@@ -146,7 +146,7 @@ def llm_judge_metric_fn(
           ),
       )
 
-      result = json.loads(response.text)
+      result = json.loads(response.text)  # pyrefly: ignore[bad-argument-type]
       total_pirate_score += result.get("pirate_score", 0)
       total_helpfulness += result.get("content_relevance_score", 0)
       count += 1

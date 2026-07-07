@@ -207,12 +207,12 @@ class CustomFramework(base.AbstractEvalFramework):
     rows: list[tasks_base.DatasetRow] = list(loaders.load_dataset(task.dataset))
 
     if limit:
-      rows = _apply_limit(rows, limit)
+      rows = _apply_limit(rows, limit)  # pyrefly: ignore[bad-argument-type, bad-assignment]
 
     # Apply explicit 'samples' string expression (e.g.,
     # {"task_name_1": "0-10", "task_name_2": "1,3,5"}) filtering.
     if samples:
-      rows = _apply_samples(rows, samples, task.name)
+      rows = _apply_samples(rows, samples, task.name)  # pyrefly: ignore[bad-argument-type, bad-assignment]
 
     predictions = []
     groundtruths = []
