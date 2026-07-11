@@ -286,6 +286,8 @@ class EvalPipelineTest(absltest.TestCase):
             "min_log_severity": 1000,
             "always_return_not_greedy": True,
             "enable_scoring": True,
+            "thinking": None,
+            "thinking_budget": None,
         },
     )
 

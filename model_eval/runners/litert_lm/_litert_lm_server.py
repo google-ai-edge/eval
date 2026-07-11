@@ -126,6 +126,22 @@ def build_app(engine: Any, config: base.RunnerConfig) -> fastapi.FastAPI:
   model_name = getattr(config, "model_name", "litert-model")
   always_return_not_greedy = getattr(config, "always_return_not_greedy", True)
 
+  thinking = getattr(config, "thinking", None)
+  thinking_budget = getattr(config, "thinking_budget", None)
+
+  if thinking is None and thinking_budget is None:
+    thinking_config = None
+  else:
+    if thinking is None:
+      thinking = thinking_budget != 0
+    if thinking_budget is None:
+      thinking_budget = -1 if thinking else 0
+
+    thinking_config = litert_lm.ThinkingConfig(
+        enable_thinking=thinking,
+        thinking_token_budget=thinking_budget,
+    )
+
   @app.get("/health")
   def health() -> dict[str, str]:
     """Endpoint to check if the server is healthy."""
@@ -206,8 +222,13 @@ def build_app(engine: Any, config: base.RunnerConfig) -> fastapi.FastAPI:
         top_p=req.top_p,
         seed=req.seed,
     )
+
+    kwargs = {}
+    if thinking_config is not None:
+      kwargs["thinking_config"] = thinking_config
+
     with engine.create_conversation(
-        messages=preface, sampler_config=sampler_config
+        messages=preface, sampler_config=sampler_config, **kwargs
     ) as conv:
       # Send the query message to generate the completion.
       response = conv.send_message(query)

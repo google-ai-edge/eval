@@ -158,6 +158,10 @@ class LiteRtLmRunner(base.AbstractRunner):
     always_return_not_greedy: bool = True
     # Whether to enable text and multimodal scoring.
     enable_scoring: bool = True
+    # Whether to enable thinking/reasoning generation.
+    thinking: bool | None = None
+    # Budget for reasoning tokens. 0 disables thinking. -1 enables unlimited.
+    thinking_budget: int | None = None
 
     @classmethod
     def from_unified_args(

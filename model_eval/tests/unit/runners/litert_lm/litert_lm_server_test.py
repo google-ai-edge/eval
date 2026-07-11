@@ -29,6 +29,8 @@ class TestLiteRTLMServer(unittest.TestCase):
     mock_cfg = mock.MagicMock()
     mock_cfg.model_name = "test-model"
     mock_cfg.always_return_not_greedy = False
+    mock_cfg.thinking = None
+    mock_cfg.thinking_budget = None
     self.app = _litert_lm_server.build_app(self.mock_engine, mock_cfg)
     self.client = fastapi.testclient.TestClient(self.app)
 
@@ -326,6 +328,8 @@ class TestLiteRTLMServer(unittest.TestCase):
     mock_cfg = mock.MagicMock()
     mock_cfg.model_name = "test-model"
     mock_cfg.always_return_not_greedy = True
+    mock_cfg.thinking = None
+    mock_cfg.thinking_budget = None
     app_fast = _litert_lm_server.build_app(self.mock_engine, mock_cfg)
     client_fast = fastapi.testclient.TestClient(app_fast)
 
@@ -395,6 +399,38 @@ class TestLiteRTLMServer(unittest.TestCase):
               "endpoint does not enforce them."
           ),
       )
+
+  def test_chat_completions_with_thinking_config(self):
+    mock_engine = mock.MagicMock()
+    mock_engine.create_conversation.return_value.__enter__.return_value.send_message.return_value = {
+        "role": "model",
+        "content": [{"type": "text", "text": "Reasoning output"}],
+    }
+
+    mock_cfg = mock.MagicMock()
+    mock_cfg.model_name = "test-model"
+    mock_cfg.always_return_not_greedy = False
+    mock_cfg.thinking = True
+    mock_cfg.thinking_budget = 100
+
+    app = _litert_lm_server.build_app(mock_engine, mock_cfg)
+    client = fastapi.testclient.TestClient(app)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "test-model",
+            "messages": [{"role": "user", "content": "Hello"}],
+        },
+    )
+
+    self.assertEqual(response.status_code, 200)
+    mock_engine.create_conversation.assert_called_once()
+    kwargs = mock_engine.create_conversation.call_args.kwargs
+    self.assertIn("thinking_config", kwargs)
+    self.assertTrue(kwargs["thinking_config"].enable_thinking)
+    self.assertEqual(kwargs["thinking_config"].thinking_token_budget, 100)
+
 
 
 class TestRenderChatScoreContext(unittest.TestCase):

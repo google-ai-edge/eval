@@ -486,6 +486,22 @@ class TestLiteRtLmRunner(unittest.TestCase):
     self.assertFalse(runner_disabled.capabilities.text_scoring)
     self.assertFalse(runner_disabled.capabilities.multimodal_scoring)
 
+  def test_thinking_configuration(self):
+    # Defaults
+    config_default = litert_lm.LiteRtLmRunner.Config(
+        runner_type="litert-lm", model_path="/foo"
+    )
+    self.assertIsNone(config_default.thinking)
+    self.assertIsNone(config_default.thinking_budget)
+
+    # Set config values
+    config_custom = litert_lm.LiteRtLmRunner.Config(
+        runner_type="litert-lm", model_path="/foo", thinking=True, thinking_budget=10
+    )
+    self.assertTrue(config_custom.thinking)
+    self.assertEqual(config_custom.thinking_budget, 10)
+
+
 
 if __name__ == "__main__":
   unittest.main()
