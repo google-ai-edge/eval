@@ -295,72 +295,123 @@ ai-edge-eval \
 
 ## 🛠️ Custom Task CUJ
 
-`ai-edge-eval` makes it seamless to define and run custom evaluation benchmarks tailored to your specific datasets and metrics.
+`ai-edge-eval` makes it seamless to define and evaluate custom evaluation benchmarks tailored to your specific datasets and metrics. You can author custom tasks using either **Declarative Catalogs (YAML)** or **Pure Python Scripting**.
 
-### 1. Prepare the Dataset
+### Approach 1: Declarative Catalogs (YAML)
 
-Prepare your evaluation dataset in JSON Lines (`.jsonl`) format, where each entry separates the input context (`messages`) and the expected output (`ground_truth`), along with optional `metadata`. 
+For highly structured projects or when maintaining large suites of evaluations, we recommend separating reusable data loading and metric calculation machinery from configuration.
 
-> [!NOTE]
-> The `messages` field strictly follows the canonical OpenAI Chat Completion format (a list of dictionaries specifying `role` and `content`).
-
-```json
-{
-  "messages": [{"role": "user", "content": "What is the capital of France?"}],
-  "ground_truth": "Paris"
-}
-{
-  "messages": [{"role": "user", "content": "Calculate 5 + 7"}],
-  "ground_truth": "12"
-}
-```
-
-### 2. Task Definition
-
-To run custom evaluation benchmarks, register your generation parameters and evaluation hooks via a Python file (e.g., `register_custom_tasks.py`):
+#### 1. Define Machinery in Python
+Register reusable dataset loaders and evaluation metrics by name in a Python script (e.g., `plugins.py`):
 
 ```python
-# File: register_custom_tasks.py
+# File: plugins.py
 
-from typing import Iterator
+import csv
+from model_eval.custom_tasks import register_loader, register_metric, DatasetRow
+
+@register_loader("my_csv_loader")
+def load_csv(spec) -> list[DatasetRow]:
+  # Parse dataset row elements based on options configured in the YAML spec.
+  rows = []
+  with open(spec.options["file"], "r", encoding="utf-8") as f:
+    for r in csv.DictReader(f):
+      rows.append(DatasetRow(messages=[{"role": "user", "content": r["prompt"]}], ground_truth=r["target"]))
+  return rows
+
+@register_metric("my_accuracy")
+def eval_accuracy(preds, gts, rows, *, normalizer) -> dict[str, float]:
+  p = [normalizer(text) for text in preds]
+  g = [normalizer(text) for text in gts]
+  return {"accuracy": sum(pi == gi for pi, gi in zip(p, g)) / len(p)}
+```
+
+#### 2. Author Task Spec in YAML
+Declare your evaluation benchmark tasks in a YAML file (e.g., `tasks.yaml`). Task names use colon-separated prefixes (`:`) to define natural hierarchies and groups.
+
+> [!IMPORTANT]
+> **Required Generation Config**: The `generation_config` block is strictly required for all task specifications. If you want to use the default settings (e.g., default temperature, token limits), you must still provide an empty block: `generation_config: {}`.
+
+```yaml
+# File: tasks.yaml
+- name: my_project:qa:dev
+  loader: my_csv_loader
+  metrics: [my_accuracy]
+  normalizer: identity
+  generation_config:
+    max_new_tokens: 64
+  options:
+    file: path/to/dev_set.csv
+
+- name: my_project:qa:test
+  loader: my_csv_loader
+  metrics: [my_accuracy]
+  normalizer: identity
+  generation_config:
+    max_new_tokens: 64
+  options:
+    file: path/to/test_set.csv
+```
+
+> [!TIP]
+> **Matrix Expansion**: You can easily generate combinatorial suites of tasks using the `for_each` key:
+> ```yaml
+> - name: my_project:math_{split}
+>   loader: my_csv_loader
+>   metrics: [my_accuracy]
+>   generation_config: {}
+>   for_each:
+>     split: [dev, test]
+> ```
+
+#### 3. Execute by Task or Group
+Point the CLI to both files using repeated `--custom-tasks-file` flags. The CLI automatically loads Python code first, so YAML references resolve perfectly:
+
+```bash
+# Run a specific leaf task
+ai-edge-eval \
+      --runner litert-lm --model path/to/model.litertlm \
+      --framework custom \
+      --custom-tasks-file plugins.py \
+      --custom-tasks-file tasks.yaml \
+      --tasks my_project:qa:dev
+
+# Run an entire task group (automatically expands to all matching subtasks)
+ai-edge-eval \
+      --runner litert-lm --model path/to/model.litertlm \
+      --framework custom \
+      --custom-tasks-file plugins.py \
+      --custom-tasks-file tasks.yaml \
+      --tasks my_project:qa
+```
+
+---
+
+### Approach 2: Pure Python Scripting
+
+For quick one-off tasks, you can author a self-contained `CustomTask` object and register it directly:
+
+```python
+# File: register_oneoff.py
+
+from model_eval.custom_tasks import CustomTask, DatasetRow, TaskRegistry
 from model_eval.config.generation_config import GenerationConfig
-from model_eval.custom_tasks.base import CustomTask, DatasetRow
-from model_eval.custom_tasks.registry import TaskRegistry
-
-def exact_match(
-    preds: Iterator[str], gts: Iterator[str], rows: Iterator[DatasetRow[str]]
-) -> dict[str, float]:
-  # Retrieve generated text and ground truth text.
-  p = [text.strip().lower() for text in preds]
-  g = [text.strip().lower() for text in gts]
-  accuracy = sum(pi == gi for pi, gi in zip(p, g)) / len(p)
-  return {"exact_match": accuracy}
 
 qa_task = CustomTask(
-    name="my_custom_qa",
-    dataset="path/to/dataset.jsonl",
-    metric_fn=exact_match,
-    generation_config=GenerationConfig(
-        temperature=0.5, max_new_tokens=64, stop_sequences=["\n"]
-    )
+    name="simple_qa",
+    dataset=lambda: iter([DatasetRow(messages=[{"role": "user", "content": "2+2"}], ground_truth="4")]),
+    metric_fn=lambda p, g, r: {"accuracy": 1.0 if p[0].strip() == g[0] else 0.0},
+    generation_config=GenerationConfig(temperature=0.0, max_new_tokens=20)
 )
-
 TaskRegistry.global_registry().register(qa_task)
 ```
 
-### 3. Run Custom Evaluation
-
-Point the CLI to your custom registration file authored in Step 2 using the `--custom-tasks-file` flag:
-
 ```bash
 ai-edge-eval \
-      --runner litert-lm \
-      --runner-args "model_path=/path/to/model.litertlm,backend=cpu" \
-      --tasks my_custom_qa \
+      --runner litert-lm --model path/to/model.litertlm \
       --framework custom \
-      --custom-tasks-file register_custom_tasks.py \
-      --eval-args "limit=10" \
-      --output-dir your_result_directory
+      --custom-tasks-file register_oneoff.py \
+      --tasks simple_qa
 ```
 
 ---
@@ -370,7 +421,7 @@ ai-edge-eval \
 `ai-edge-eval` includes built-in discovery utilities to help you explore supported configurations, tasks, and runners.
 
 ### Argument Discovery
-Use the `list-args` subcommand to inspect the available configurations and parameters exposed by a given runner or evaluation framework:
+Use the `list-args` subcommand to inspect available configurations and parameters exposed by a given runner or evaluation framework:
 
 ```bash
 # Discover runner arguments
@@ -378,6 +429,14 @@ ai-edge-eval list-args --runner litert-lm
 
 # Discover evaluation framework arguments
 ai-edge-eval list-args --framework lm-eval
+```
+
+### Custom Framework Discovery
+Use the `list-metrics` and `list-loaders` subcommands to inspect reusable extension machinery registered in your custom Python scripts:
+
+```bash
+ai-edge-eval list-metrics --custom-tasks-file plugins.py
+ai-edge-eval list-loaders --custom-tasks-file plugins.py
 ```
 
 ### Supported Tasks and Runners

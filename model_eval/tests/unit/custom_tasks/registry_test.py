@@ -38,6 +38,42 @@ class TaskRegistryTest(absltest.TestCase):
     with self.assertRaises(KeyError):
       reg.get_task("non_existent")
 
+  def test_register_duplicate_raises_valueerror(self):
+    reg = tasks.TaskRegistry()
+    t1 = tasks.CustomTask(name="foo", dataset="bar", metric_fn=lambda p, g: {})
+    t2 = tasks.CustomTask(name="foo", dataset="baz", metric_fn=lambda p, g: {})
+    reg.register(t1)
+    with self.assertRaisesRegex(ValueError, "already registered"):
+      reg.register(t2)
+
+  def test_register_collision_leaf_matches_existing_group_prefix(self):
+    reg = tasks.TaskRegistry()
+    t1 = tasks.CustomTask(
+        name="qa:squad:dev", dataset="bar", metric_fn=lambda p, g: {}
+    )
+    reg.register(t1)
+
+    t2 = tasks.CustomTask(
+        name="qa:squad", dataset="baz", metric_fn=lambda p, g: {}
+    )
+    with self.assertRaisesRegex(ValueError, "conflicts with.*group prefix"):
+      reg.register(t2)
+
+  def test_register_collision_new_group_prefix_matches_existing_leaf(self):
+    reg = tasks.TaskRegistry()
+    t1 = tasks.CustomTask(
+        name="qa:squad", dataset="bar", metric_fn=lambda p, g: {}
+    )
+    reg.register(t1)
+
+    t2 = tasks.CustomTask(
+        name="qa:squad:dev", dataset="baz", metric_fn=lambda p, g: {}
+    )
+    with self.assertRaisesRegex(
+        ValueError, "already registered as a leaf task"
+    ):
+      reg.register(t2)
+
   def test_get_all_tasks(self):
     reg = tasks.TaskRegistry()
     task = tasks.CustomTask(
