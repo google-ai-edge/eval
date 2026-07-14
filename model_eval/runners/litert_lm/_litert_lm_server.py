@@ -233,24 +233,35 @@ def build_app(engine: Any, config: base.RunnerConfig) -> fastapi.FastAPI:
       # Send the query message to generate the completion.
       response = conv.send_message(query)
       text = ""
+      reasoning_content = None
       # Parse the response, which could be a plain string or a list of
       # multimodal content parts (e.g. text, images).
-      if isinstance(response, dict) and "content" in response:
-        content_items = response["content"]
-        if isinstance(content_items, list):
-          # If it is a list, filter and join all text parts.
-          text = "".join([
-              it.get("text", "")
-              for it in content_items
-              if it.get("type") == "text"
-          ])
-        else:
-          # Otherwise treat the content directly as a string.
-          text = str(content_items)
+      if isinstance(response, dict):
+        if "channels" in response and isinstance(response["channels"], dict):
+          # The name of the channel used to store reasoning is determined by the
+          # llm metadata proto. Gemma4 uses "thought", while other models may
+          # use different names.
+          reasoning_content = response["channels"].get("thought", "")
+        if "content" in response:
+          content_items = response["content"]
+          if isinstance(content_items, list):
+            # If it is a list, filter and join all text parts.
+            text = "".join([
+                it.get("text", "")
+                for it in content_items
+                if it.get("type") == "text"
+            ])
+          else:
+            # Otherwise treat the content directly as a string.
+            text = str(content_items)
         # Truncate at the earliest stop sequence, if any.
         indices = [text.index(s) for s in stop_seqs if s in text]
         if indices:
           text = text[: min(indices)]
+
+    message_payload = {"role": "assistant", "content": text}
+    if reasoning_content:
+      message_payload["reasoning_content"] = reasoning_content
 
     return {
         "id": "chatcmpl-generation",
@@ -259,7 +270,7 @@ def build_app(engine: Any, config: base.RunnerConfig) -> fastapi.FastAPI:
         "model": model_name,
         "choices": [{
             "index": 0,
-            "message": {"role": "assistant", "content": text},
+            "message": message_payload,
             "finish_reason": "stop",
         }],
         # LiteRT LM currently doesn't natively expose token counts in its
