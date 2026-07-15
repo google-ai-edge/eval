@@ -84,9 +84,10 @@ def load_dataset(
     # For JSONL files, each line is expected to be a JSON-encoded DatasetRow
     # object.
     if path.suffix == ".jsonl":
-      for line in path.read_text().splitlines():
-        if line.strip():
-          yield json.loads(line)
+      with path.open() as f:
+        for line in f:
+          if line.strip():
+            yield json.loads(line)
     # For CSV files, rows must contain a "data" column with JSON-encoded
     # DatasetRow object.
     elif path.suffix == ".csv":
