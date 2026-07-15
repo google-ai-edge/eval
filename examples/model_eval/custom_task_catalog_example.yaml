@@ -1,0 +1,43 @@
+# Example YAML declarative catalog defining custom evaluation tasks.
+#
+# To run this example task:
+# ai-edge-eval \
+#     --runner litert-lm \
+#     --model-path <path_to_model> \
+#     --device cpu \
+#     --framework custom \
+#     --custom-tasks-file custom_task_plugins_example.py \
+#     --custom-tasks-file custom_task_catalog_example.yaml \
+#     --tasks declarative:math
+
+- name: declarative:math:easy
+  loader: example_dummy_loader
+  metrics: [example_dummy_metric]
+  normalizer: identity
+  generation_config:
+    max_new_tokens: 20
+  options:
+    count: 2
+    prefix: "Solve"
+
+- name: declarative:math:hard
+  loader: example_dummy_loader
+  metrics: [example_dummy_metric]
+  normalizer: identity
+  generation_config:
+    max_new_tokens: 50
+  options:
+    count: 3
+    prefix: "Calculate exactly"
+
+# Demonstrates matrix expansion (for_each).
+- name: declarative:math:templated_{difficulty}
+  loader: example_dummy_loader
+  metrics: [example_dummy_metric]
+  normalizer: identity
+  generation_config: {}
+  options:
+    count: 3
+    prefix: "Calculate"
+  for_each:
+    difficulty: [easy, hard]
