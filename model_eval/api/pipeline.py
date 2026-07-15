@@ -21,6 +21,7 @@ import sys
 import time
 from typing import Any, cast
 
+from model_eval.custom_tasks import groups
 from model_eval.custom_tasks import registry as tasks_registry
 from model_eval.frameworks import base as framework_base
 from model_eval.frameworks import registry as framework_registry
@@ -54,8 +55,9 @@ def _load_task_allowlist(
       A list of allowed task names for the given framework.
   """
   if framework == framework_base.FrameworkType.CUSTOM:
-    # Custom framework uses the registry's custom tasks.
-    return tasks_registry.TaskRegistry.global_registry().get_all_tasks()
+    # Custom framework uses the registry's tasks and derived groups.
+    names = tasks_registry.TaskRegistry.global_registry().get_all_tasks()
+    return list(names) + groups.list_groups(names)
   if path:
     with open(path, "r", encoding="utf-8") as f:
       config = yaml.safe_load(f)

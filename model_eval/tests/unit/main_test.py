@@ -102,16 +102,19 @@ class MainTest(parameterized.TestCase):
     res = main._parse_csv_args("data=[{'a': 1}, {'b': 2}]")
     self.assertEqual(res, {"data": [{"a": 1}, {"b": 2}]})
 
-  @mock.patch("model_eval.cli.main.importlib.import_module")
-  @mock.patch(
-      "model_eval.cli.main.eval_pipeline.EvalPipeline"
-  )
+  @mock.patch("model_eval.cli.main.importlib.util")
+  @mock.patch("model_eval.cli.main.eval_pipeline.EvalPipeline")
   def test_custom_tasks_file_triggers_import(
-      self, mock_pipeline_cls, mock_import
+      self, mock_pipeline_cls, mock_importlib_util
   ):
     mock_pipeline = mock.MagicMock()
     mock_pipeline_cls.return_value = mock_pipeline
     mock_pipeline.run.return_value.aggregated_metrics = {}
+
+    mock_spec = mock.MagicMock()
+    mock_importlib_util.spec_from_file_location.return_value = mock_spec
+    mock_module = mock.MagicMock()
+    mock_importlib_util.module_from_spec.return_value = mock_module
 
     runner = testing.CliRunner()
     result = runner.invoke(
@@ -130,7 +133,13 @@ class MainTest(parameterized.TestCase):
         ],
     )
     self.assertEqual(result.exit_code, 0)
-    mock_import.assert_called_once_with("fake_module")
+    mock_importlib_util.spec_from_file_location.assert_called_once()
+    args, _ = mock_importlib_util.spec_from_file_location.call_args
+    self.assertEqual(args[0], "custom_task_module_fake_module")
+    self.assertTrue(args[1].endswith("fake_module.py"))
+
+    mock_importlib_util.module_from_spec.assert_called_once_with(mock_spec)
+    mock_spec.loader.exec_module.assert_called_once_with(mock_module)
 
   def test_list_runners_with_custom_config(self):
     """Verifies that list-runners command respects custom runner config."""

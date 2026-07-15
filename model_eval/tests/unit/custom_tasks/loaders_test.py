@@ -14,6 +14,9 @@
 
 """Unit tests for loaders and slicing."""
 
+import json
+import pathlib
+import tempfile
 from absl.testing import absltest
 from model_eval.custom_tasks import loaders
 
@@ -28,6 +31,55 @@ class LoadersTest(absltest.TestCase):
 
   def test_parse_samples_comma(self):
     self.assertEqual(loaders.parse_samples("0,2,4", 10), [0, 2, 4])
+
+  def test_load_dataset_jsonl(self):
+    rows = [
+        {
+            "messages": [{"role": "user", "content": "hello"}],
+            "ground_truth": "hi",
+        },
+        {
+            "messages": [{"role": "user", "content": "bye"}],
+            "ground_truth": "goodbye",
+        },
+    ]
+    with tempfile.NamedTemporaryFile(
+        suffix=".jsonl", mode="w", delete=False
+    ) as f:
+      for r in rows:
+        f.write(json.dumps(r) + "\n")
+      f_name = f.name
+
+    try:
+      loaded = list(loaders.load_dataset(f_name))
+      self.assertLen(loaded, 2)
+      self.assertEqual(loaded[0]["ground_truth"], "hi")
+      self.assertEqual(loaded[1]["ground_truth"], "goodbye")
+    finally:
+      pathlib.Path(f_name).unlink()
+
+  def test_load_dataset_csv(self):
+    rows = [
+        {
+            "messages": [{"role": "user", "content": "hello"}],
+            "ground_truth": "hi",
+        },
+    ]
+    with tempfile.NamedTemporaryFile(
+        suffix=".csv", mode="w", delete=False
+    ) as f:
+      f.write("data\n")
+      for r in rows:
+        val = json.dumps(r).replace('"', '""')
+        f.write(f'"{val}"\n')
+      f_name = f.name
+
+    try:
+      loaded = list(loaders.load_dataset(f_name))
+      self.assertLen(loaded, 1)
+      self.assertEqual(loaded[0]["ground_truth"], "hi")
+    finally:
+      pathlib.Path(f_name).unlink()
 
 
 if __name__ == "__main__":
