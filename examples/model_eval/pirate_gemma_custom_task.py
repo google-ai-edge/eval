@@ -73,8 +73,8 @@ def pirate_dataset_generator():
 
   for row in hf_dataset:
     # The dataset uses 'user' for the prompt and 'pirate' for the ground truth
-    prompt_text = row.get("user", "")
-    expected = row.get("pirate", "")
+    prompt_text = row.get("user", "")  # pyrefly: ignore[missing-attribute]
+    expected = row.get("pirate", "")  # pyrefly: ignore[missing-attribute]
 
     yield custom_tasks.DatasetRow(
         messages=[{"role": "user", "content": prompt_text}],
