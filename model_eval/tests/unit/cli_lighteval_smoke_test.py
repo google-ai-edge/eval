@@ -84,7 +84,15 @@ class CliLightevalSmokeTest(absltest.TestCase):
     self.assertEqual(p.returncode, 0, msg=p.stderr)
     out = p.stdout
     # Known tasks from model_eval/config/tasks.yaml (lighteval section).
-    for task in ("arc:easy", "arc:challenge", "mmlu", "winogrande", "ifeval"):
+    for task in (
+        "arc:easy",
+        "arc:challenge",
+        "mmlu",
+        "winogrande",
+        "ifeval",
+        "mmmu_pro:standard-4",
+        "mmmu_pro:vision",
+    ):
       self.assertIn(
           task, out, msg=f"task {task!r} missing from list-tasks output"
       )

@@ -16,5 +16,4 @@
 
 # pylint: disable=unused-import,g-bad-import-order,g-importing-member
 from model_eval.runners.litert_lm.litert_lm import _clamp_log_severity
-from model_eval.runners.litert_lm.litert_lm import _resolve_backend
 from model_eval.runners.litert_lm.litert_lm import LiteRtLmRunner

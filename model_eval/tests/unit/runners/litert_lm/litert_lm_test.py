@@ -79,7 +79,7 @@ class TestLiteRtLmRunner(unittest.TestCase):
     # Verify Engine was initialized correctly.
     mock_engine.assert_called_once_with(
         "/path/to/model",
-        backend=litert_lm._resolve_backend(litert_lm.litert_lm.Backend.GPU),
+        backend=litert_lm.litert_lm.Backend.GPU(),
         max_num_tokens=2048,
     )
     mock_set_min_log_severity.assert_called_once_with(mock.ANY)
@@ -155,14 +155,10 @@ class TestLiteRtLmRunner(unittest.TestCase):
       runner.start()
     mock_engine.assert_called_once_with(
         "/path/to/model",
-        backend=litert_lm._resolve_backend(litert_lm.litert_lm.Backend.CPU),
+        backend=litert_lm.litert_lm.Backend.CPU(),
         max_num_tokens=4096,
-        vision_backend=litert_lm._resolve_backend(
-            litert_lm.litert_lm.Backend.GPU
-        ),
-        audio_backend=litert_lm._resolve_backend(
-            litert_lm.litert_lm.Backend.CPU
-        ),
+        vision_backend=litert_lm.litert_lm.Backend.GPU(),
+        audio_backend=litert_lm.litert_lm.Backend.CPU(),
     )
     runner.stop()
 
@@ -219,7 +215,7 @@ class TestLiteRtLmRunner(unittest.TestCase):
     # Verify Engine was initialized correctly with enable_speculative_decoding.
     mock_engine.assert_called_once_with(
         "/path/to/model",
-        backend=litert_lm._resolve_backend(litert_lm.litert_lm.Backend.CPU),
+        backend=litert_lm.litert_lm.Backend.CPU(),
         max_num_tokens=4096,
         enable_speculative_decoding=True,
     )
@@ -385,7 +381,7 @@ class TestLiteRtLmRunner(unittest.TestCase):
       runner.start()
     mock_engine.assert_called_once_with(
         "/path/to/model",
-        backend=litert_lm._resolve_backend(litert_lm.litert_lm.Backend.CPU),
+        backend=litert_lm.litert_lm.Backend.CPU(),
         max_num_tokens=4096,
         activation_data_type=litert_lm.litert_lm.ActivationDataType.FLOAT16,
     )
@@ -442,7 +438,7 @@ class TestLiteRtLmRunner(unittest.TestCase):
       runner.start()
     mock_engine.assert_called_once_with(
         "/path/to/model",
-        backend=litert_lm._resolve_backend(litert_lm.litert_lm.Backend.CPU),
+        backend=litert_lm.litert_lm.Backend.CPU(),
         max_num_tokens=4096,
         activation_data_type=litert_lm.litert_lm.ActivationDataType.FLOAT32,
     )
@@ -500,7 +496,6 @@ class TestLiteRtLmRunner(unittest.TestCase):
     )
     self.assertTrue(config_custom.thinking)
     self.assertEqual(config_custom.thinking_budget, 10)
-
 
 
 if __name__ == "__main__":

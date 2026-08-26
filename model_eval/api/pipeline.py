@@ -266,7 +266,7 @@ class EvalPipeline:
                 "sample_index": offset + idx,
                 **sample,
             }
-            f.write(json.dumps(sample_out) + "\n")
+            f.write(json.dumps(sample_out, default=str) + "\n")
       print(f"Saved samples to {samples_path}")
 
     print(f"Saved metrics to {metrics_path}")

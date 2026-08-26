@@ -29,6 +29,7 @@ lighteval:
   # Generation tasks:
   - bigbench_hard
   - ifeval
+  - mmmu_pro  # multimodal generation
   # Scoring tasks:
   - mmlu
   - arc

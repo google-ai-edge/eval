@@ -68,24 +68,17 @@ def _resolve_model_path(path: str) -> str:  # pylint: disable=g-doc-args
   return path
 
 
-def _resolve_backend(
-    backend_obj: litert_lm.Backend | Callable[[], litert_lm.Backend],
-):
-  """Resolves a backend for backward compatibility."""
-  return backend_obj() if callable(backend_obj) else backend_obj
-
-
 def _parse_backend(backend_str: str) -> litert_lm.Backend:
   """Parses a string backend to the litert_lm.Backend."""
   if isinstance(backend_str, litert_lm.Backend):
     return backend_str
   backend_upper = backend_str.upper()
   if backend_upper == "CPU":
-    return _resolve_backend(litert_lm.Backend.CPU)  # pyrefly: ignore[missing-attribute]
+    return litert_lm.Backend.CPU()
   elif backend_upper == "GPU":
-    return _resolve_backend(litert_lm.Backend.GPU)  # pyrefly: ignore[missing-attribute]
+    return litert_lm.Backend.GPU()
   elif backend_upper == "NPU":
-    return _resolve_backend(litert_lm.Backend.NPU)  # pyrefly: ignore[missing-attribute]
+    return litert_lm.Backend.NPU()
   else:
     valid_backends = ["CPU", "GPU", "NPU"]
     raise ValueError(
@@ -95,16 +88,20 @@ def _parse_backend(backend_str: str) -> litert_lm.Backend:
 
 def _parse_activation_data_type(
     activation_data_type: str,
-) -> litert_lm.ActivationDataType | None:
+) -> litert_lm.ActivationDataType:
   """Parses a string activation data type to the litert_lm.ActivationDataType."""
   valid_types = ["fp32", "fp16"]
   if activation_data_type not in valid_types:
     raise ValueError(
         f"Unsupported activation data type: '{activation_data_type}'. "
-        f"Must be one of {valid_types} or a "
-        "litert_lm.ActivationDataType instance."
+        f"Must be one of {valid_types}."
     )
-  return litert_lm.ActivationDataType.from_str(activation_data_type)
+  parsed = litert_lm.ActivationDataType.from_str(activation_data_type)
+  if parsed is None:
+    raise ValueError(
+        f"Failed to parse activation data type: '{activation_data_type}'"
+    )
+  return parsed
 
 
 def _clamp_log_severity(severity: int) -> litert_lm.LogSeverity:

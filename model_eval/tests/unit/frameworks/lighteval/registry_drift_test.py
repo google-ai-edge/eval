@@ -41,7 +41,7 @@ class TestRegistryDrift(absltest.TestCase):
     map.
     """
     supported = set(lighteval.LightEvalFramework.supported_task_ids())
-    for suite in ("mmlu", "bigbench_hard"):
+    for suite in ("mmlu", "bigbench_hard", "mmmu_pro"):
       self.assertIn(
           suite,
           supported,
@@ -76,4 +76,3 @@ class TestRegistryDrift(absltest.TestCase):
 
 if __name__ == "__main__":
   absltest.main()
-
