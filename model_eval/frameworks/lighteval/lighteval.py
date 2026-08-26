@@ -286,8 +286,20 @@ class LightEvalFramework(base.AbstractEvalFramework):
       if final_batch_size is not None:
         runner_args.model_args[info.batch_size_field_name] = final_batch_size
 
-    # Instantiate the engine-specific Lighteval configuration.
-    lm_config = config_cls(**runner_args.model_args)
+    # Check if vision_model flag is requested for accelerate backends.
+    is_vision = runner_args.model_args.pop("vision_model", False)
+    if isinstance(is_vision, str):
+      is_vision = is_vision.lower() in ("true", "1", "yes")
+
+    if is_vision:
+      vlm_module = importlib.import_module(
+          "lighteval.models.transformers.vlm_transformers_model"
+      )
+      lm_config = vlm_module.VLMTransformersModelConfig(
+          **runner_args.model_args
+      )
+    else:
+      lm_config = config_cls(**runner_args.model_args)
     return self._run_pipeline(
         tasks=tasks,
         model_config=lm_config,

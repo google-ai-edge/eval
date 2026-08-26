@@ -90,6 +90,42 @@ class TestLightEvalAdapter(absltest.TestCase):
     self.assertEqual(results.framework_type, "lighteval")
     self.assertEqual(results.aggregated_metrics["task2"]["acc"], 0.95)
 
+  @mock.patch.object(lighteval.lighteval_pipeline, "Pipeline")
+  def test_evaluate_native_switches_to_vlm_config_when_vision_model_true(
+      self, mock_pipeline_cls
+  ):
+    mock_pipeline = mock_pipeline_cls.return_value
+    mock_pipeline.get_results.return_value = {
+        "results": {"task_vlm": {"acc": 0.88}},
+        "samples": {},
+        "config": {"model": "accelerate"},
+    }
+    mock_pipeline.evaluation_tracker.details = {}
+
+    framework = lighteval.LightEvalFramework()
+    config = base.NativeModelConfig(
+        model="accelerate",
+        model_args={"model_name": "dummy_vlm", "vision_model": True},
+    )
+    with mock.patch.object(lighteval.importlib, "import_module") as mock_import:
+      mock_vlm_cls = mock.MagicMock()
+
+      def fake_import(path):
+        if path == "lighteval.models.transformers.vlm_transformers_model":
+          m = mock.MagicMock()
+          m.VLMTransformersModelConfig = mock_vlm_cls
+          return m
+        return mock.MagicMock()
+
+      mock_import.side_effect = fake_import
+
+      results = framework.evaluate_native(config, ["task_vlm"])
+
+    mock_vlm_cls.assert_called_once()
+    self.assertNotIn("vision_model", mock_vlm_cls.call_args.kwargs)
+    self.assertEqual(results.framework_type, "lighteval")
+    self.assertEqual(results.aggregated_metrics["task_vlm"]["acc"], 0.88)
+
   def test_evaluate_native_conflicts(self):
     framework = lighteval.LightEvalFramework()
     with mock.patch.object(lighteval.importlib, "import_module") as mock_import:
