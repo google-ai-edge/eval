@@ -31,6 +31,7 @@ class RunnerType(enum.StrEnum):
   """Supported runner types."""
 
   LITERT_LM = "litert-lm"
+  HTTP_SERVER = "http-server"
 
 
 @dataclasses.dataclass

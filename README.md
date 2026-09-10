@@ -19,6 +19,7 @@
 - [⚡ Running Evaluations](#-running-evaluations)
   - [LiteRT LM Runners](#🤖-litert-lm-runners)
   - [Direct Native Library Runners](#🚀-direct-native-library-runners-huggingface-etc)
+  - [HTTP Server Runner](#🌐-http-server-runner)
   - [Lighteval Framework](#🪶-lighteval-framework)
   - [Subsetting and Slicing Datasets](#✂️-subsetting-and-slicing-datasets)
 - [🛠️ Custom Task CUJ](#️-custom-task-cuj)
@@ -223,6 +224,36 @@ ai-edge-eval \
 
 > [!IMPORTANT]
 > For HuggingFace runners, `huggingface/repo` refers to the HuggingFace model ID, such as `Qwen/Qwen2.5-7B-Instruct` or `google/gemma-3-270m`.
+
+### 🌐 HTTP Server Runner
+
+The `http-server` runner evaluates a model served by an HTTP server that is already running, regardless of the backend or where it runs (e.g., a phone, another machine, or a cloud instance). Unlike the local runners, it does not manage the model lifecycle: it only holds the server's base URL and model name, and the evaluation framework appends the endpoint paths it needs:
+
+| Framework / task type | Endpoint required on the server |
+| :--- | :--- |
+| `lm-eval`, `lighteval`, or `custom`, generation tasks (e.g., `ifeval`) | `POST /v1/chat/completions` (OpenAI-compatible) |
+| `lm-eval` or `lighteval`, scoring tasks (e.g., `piqa`, `arc:easy`) | `POST /v1/chat/score` (served by the LiteRT-LM server; not part of the OpenAI API) |
+| `custom` tasks that define their own generation | Whatever the task calls |
+
+```bash
+ai-edge-eval \
+      --runner http-server \
+      --runner-args server_url=http://<address>:<port> \
+      --tasks ifeval \
+      --framework lm-eval \
+      --limit 2 \
+      --output-dir your_result_directory
+```
+
+| Argument | Description | Default |
+| :--- | :--- | :--- |
+| `server_url` | **Required.** The server's base URL, without any endpoint path (e.g., `http://10.0.0.1:8080`, not `http://10.0.0.1:8080/v1/chat/completions`). | None |
+| `model_name` (or `model`) | Optional. The model name sent in the `model` field of each request. | `"default_model"` |
+
+Combine multiple runner arguments with commas: `--runner-args server_url=...,model_name=...`.
+
+> [!NOTE]
+> The runner is stateless. Every request contains the full prompt, including all message history, and no reset signal is sent between examples. If your server uses KV caching, it must detect unrelated prompts (or empty history) and clear its state itself.
 
 ### 🪶 Lighteval Framework
 
