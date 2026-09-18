@@ -20,6 +20,8 @@ from unittest import mock
 from model_eval.runners.litert_lm import _litert_lm_server
 import fastapi.testclient
 
+import litert_lm
+
 
 class TestLiteRTLMServer(unittest.TestCase):
 
@@ -45,10 +47,9 @@ class TestLiteRTLMServer(unittest.TestCase):
         mock_conv
     )
 
-    mock_conv.send_message.return_value = {
-        "role": "model",
-        "content": [{"type": "text", "text": "Hi there!"}],
-    }
+    mock_conv.send_message.return_value = litert_lm.Message.model(
+        litert_lm.Contents.of("Hi there!")
+    )
 
     response = self.client.post(
         "/v1/chat/completions",
@@ -77,10 +78,9 @@ class TestLiteRTLMServer(unittest.TestCase):
     )
     mock_sampler_config_instance = mock.MagicMock()
     mock_sampler_config_class.return_value = mock_sampler_config_instance
-    mock_conv.send_message.return_value = {
-        "role": "model",
-        "content": [{"type": "text", "text": "Testing temperature"}],
-    }
+    mock_conv.send_message.return_value = litert_lm.Message.model(
+        litert_lm.Contents.of("Testing temperature")
+    )
 
     response = self.client.post(
         "/v1/chat/completions",
@@ -112,10 +112,9 @@ class TestLiteRTLMServer(unittest.TestCase):
     )
     mock_sampler_config_instance = mock.MagicMock()
     mock_sampler_config_class.return_value = mock_sampler_config_instance
-    mock_conv.send_message.return_value = {
-        "role": "model",
-        "content": [{"type": "text", "text": "Testing all params"}],
-    }
+    mock_conv.send_message.return_value = litert_lm.Message.model(
+        litert_lm.Contents.of("Testing all params")
+    )
 
     response = self.client.post(
         "/v1/chat/completions",
@@ -143,10 +142,9 @@ class TestLiteRTLMServer(unittest.TestCase):
         mock_conv
     )
 
-    mock_conv.send_message.return_value = {
-        "role": "model",
-        "content": [{"type": "text", "text": "Hello world, how are you?"}],
-    }
+    mock_conv.send_message.return_value = litert_lm.Message.model(
+        litert_lm.Contents.of("Hello world, how are you?")
+    )
 
     response = self.client.post(
         "/v1/chat/completions",
@@ -366,10 +364,9 @@ class TestLiteRTLMServer(unittest.TestCase):
     self.mock_engine.create_conversation.return_value.__enter__.return_value = (
         mock_conv
     )
-    mock_conv.send_message.return_value = {
-        "role": "model",
-        "content": [{"type": "text", "text": "ok"}],
-    }
+    mock_conv.send_message.return_value = litert_lm.Message.model(
+        litert_lm.Contents.of("ok")
+    )
     for body in (
         {
             "model": "test-model",
@@ -402,10 +399,9 @@ class TestLiteRTLMServer(unittest.TestCase):
 
   def test_chat_completions_with_thinking_config(self):
     mock_engine = mock.MagicMock()
-    mock_engine.create_conversation.return_value.__enter__.return_value.send_message.return_value = {
-        "role": "model",
-        "content": [{"type": "text", "text": "Reasoning output"}],
-    }
+    mock_engine.create_conversation.return_value.__enter__.return_value.send_message.return_value = litert_lm.Message.model(
+        litert_lm.Contents.of("Reasoning output")
+    )
 
     mock_cfg = mock.MagicMock()
     mock_cfg.model_name = "test-model"
@@ -430,7 +426,6 @@ class TestLiteRTLMServer(unittest.TestCase):
     self.assertIn("thinking_config", kwargs)
     self.assertTrue(kwargs["thinking_config"].enable_thinking)
     self.assertEqual(kwargs["thinking_config"].thinking_token_budget, 100)
-
 
 
 class TestRenderChatScoreContext(unittest.TestCase):
