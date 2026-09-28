@@ -42,6 +42,8 @@ class LmEvalApplyChatTemplateEnforcementTest(absltest.TestCase):
     runner = mock.MagicMock()
     runner.model_name = "test"
     runner.server_url = "http://test"
+    runner.endpoints = ("v1/chat/completions", "v1/chat/score")
+    runner.request_timeout_sec = None
     runner.returns_greedy = True
 
     with self.assertRaisesRegex(
@@ -67,6 +69,8 @@ class LmEvalApplyChatTemplateEnforcementTest(absltest.TestCase):
     runner = mock.MagicMock()
     runner.model_name = "test"
     runner.server_url = "http://test"
+    runner.endpoints = ("v1/chat/completions", "v1/chat/score")
+    runner.request_timeout_sec = None
     runner.returns_greedy = True
 
     # We patch lm_eval.simple_evaluate to a no-op so the function returns

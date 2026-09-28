@@ -21,6 +21,7 @@ ai-edge-eval \
   --framework custom \
   --runner litert-lm \
   --model-path /path/to/your_model.litertlm \
+  --eval-args endpoint=v1/chat/completions \
   --custom-tasks-file pirate_gemma_custom_task.py \
   --tasks pirate_gemma_eval \
   --output-dir /tmp/results
@@ -30,7 +31,7 @@ ai-edge-eval \
 import json
 import logging
 import os
-from typing import Iterator
+from typing import Any, Iterator
 
 from model_eval import custom_tasks
 import datasets
@@ -64,8 +65,11 @@ for name, logger_obj in logging.Logger.manager.loggerDict.items():
 # ---------------------------------------------------------------------------
 # 1. Dataset Generator
 # ---------------------------------------------------------------------------
-def pirate_dataset_generator():
+def pirate_dataset_generator(
+    task_args: custom_tasks.TaskArgs | None = None,
+):
   """Yields DatasetRows from the HuggingFace dataset."""
+  del task_args  # Unused.
   # Note: The erintwalsh/pirate-gemma-tutorial dataset only has a 'train' split.
   hf_dataset = datasets.load_dataset(
       "erintwalsh/pirate-gemma-tutorial", split="train"
@@ -77,7 +81,11 @@ def pirate_dataset_generator():
     expected = row.get("pirate", "")  # pyrefly: ignore[missing-attribute]
 
     yield custom_tasks.DatasetRow(
-        messages=[{"role": "user", "content": prompt_text}],
+        requests=[
+            custom_tasks.chat_request(
+                [{"role": "user", "content": prompt_text}]
+            )
+        ],
         ground_truth=expected,
     )
 
@@ -86,7 +94,7 @@ def pirate_dataset_generator():
 # 2. LLM-as-a-Judge Metric Function
 # ---------------------------------------------------------------------------
 def llm_judge_metric_fn(
-    predictions: Iterator[str],
+    predictions: Iterator[list[dict[str, Any] | None]],
     ground_truths: Iterator[str],
     rows: Iterator[custom_tasks.DatasetRow],
 ) -> dict[str, float]:
@@ -113,7 +121,8 @@ def llm_judge_metric_fn(
       total=len(pred_list),
       desc="LLM Judge Evaluation",
   ):
-    user_prompt = row["messages"][-1]["content"]
+    user_prompt = row["requests"][0]["messages"][-1]["content"]
+    pred_text = custom_tasks.chat_response_text(pred[0]) if pred else None
 
     eval_prompt = f"""
         You are an expert evaluator of language models. Your task is to evaluate the quality of a model's response based on a specific persona constraint. 
@@ -121,7 +130,7 @@ def llm_judge_metric_fn(
 
         User Prompt: {user_prompt}
         Expected Answer (Ground Truth): {gt}
-        Model Response: {pred}
+        Model Response: {pred_text}
 
         Please evaluate the model's response based on the following two criteria:
 

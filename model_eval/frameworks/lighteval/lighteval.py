@@ -21,8 +21,10 @@ import types
 from typing import Any
 import warnings
 
+from model_eval.api import constants as api_constants
 from model_eval.frameworks import base
 from model_eval.frameworks import registry
+from model_eval.frameworks import utils
 from model_eval.frameworks.lighteval import _chat_score_lighteval_model
 from model_eval.runners import base as runners_base
 from model_eval.utils import introspection
@@ -193,21 +195,33 @@ class LightEvalFramework(base.AbstractEvalFramework):
 
     Returns:
         The EvalResults containing the evaluation results.
+
+    Raises:
+        ValueError: If the runner does not serve `v1/chat/completions`.
     """
+    utils.validate_endpoint(
+        runner, api_constants.CHAT_COMPLETIONS_ENDPOINT, "lighteval"
+    )
     # Resolve unified evaluation arguments into Lighteval-specific overrides.
     eval_params = self._from_unified_eval_args(
         limit, sample_range, batch_size, eval_args, limit_key="max_samples"
     )
 
+    model_name = (
+        getattr(runner, "model_name", None) or api_constants.DEFAULT_MODEL_NAME
+    )
     # Configure LiteLLM connector targeting the runner's server endpoint.
-    config = litellm_model.LiteLLMModelConfig(
-        model_name=f"openai/{runner.model_name}",
-        api_key="not-needed",
-        base_url=f"{runner.server_url}/v1",
+    config_kwargs: dict[str, Any] = {
+        "model_name": f"openai/{model_name}",
+        "api_key": "not-needed",
+        "base_url": f"{runner.server_url}/v1",
         # Use a single concurrent request to avoid concurrency issues in the
         # LiteRT LM server.
-        concurrent_requests=1,
-    )
+        "concurrent_requests": 1,
+    }
+    if runner.request_timeout_sec is not None:
+      config_kwargs["timeout"] = runner.request_timeout_sec
+    config = litellm_model.LiteLLMModelConfig(**config_kwargs)
 
     # Use our custom model adapter that delegates generation and scoring.
     model = _chat_score_lighteval_model.ChatScoreLightevalModel(config)

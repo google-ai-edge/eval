@@ -19,6 +19,7 @@
 - [⚡ Running Evaluations](#-running-evaluations)
   - [LiteRT LM Runners](#🤖-litert-lm-runners)
   - [Direct Native Library Runners](#🚀-direct-native-library-runners-huggingface-etc)
+  - [HTTP Server Runner](#🌐-http-server-runner)
   - [Lighteval Framework](#🪶-lighteval-framework)
   - [Subsetting and Slicing Datasets](#✂️-subsetting-and-slicing-datasets)
 - [🛠️ Custom Task CUJ](#️-custom-task-cuj)
@@ -224,6 +225,46 @@ ai-edge-eval \
 > [!IMPORTANT]
 > For HuggingFace runners, `huggingface/repo` refers to the HuggingFace model ID, such as `Qwen/Qwen2.5-7B-Instruct` or `google/gemma-3-270m`.
 
+### 🌐 HTTP Server Runner
+
+The `http-server` runner evaluates a model served by an HTTP server that is
+already running, regardless of the backend or where it runs (e.g., a phone,
+another machine, or a cloud instance). Unlike the local runners, it does not
+manage the model lifecycle: it holds the server's base URL and the endpoint
+paths the server exposes, and the evaluation framework checks that the
+endpoint(s) it needs are served by the runner:
+
+| Framework / task type | Endpoint(s) required on the server |
+| :--- | :--- |
+| `lm-eval` or `lighteval`, generation tasks (e.g., `ifeval`) | `POST /v1/chat/completions` (OpenAI-compatible) |
+| `lm-eval` or `lighteval`, scoring tasks (e.g., `piqa`, `arc:easy`) | `POST /v1/chat/score` (served by the LiteRT-LM server; not part of the OpenAI API) |
+| `custom`, with `--eval-args endpoint=<path>` | `POST /<endpoint>`, once per entry of each row's `requests` |
+
+```bash
+ai-edge-eval \
+      --runner http-server \
+      --runner-args "server_url=http://<address>:<port>,endpoints=['v1/chat/completions','v1/chat/score']" \
+      --tasks ifeval \
+      --framework lm-eval \
+      --limit 2 \
+      --output-dir your_result_directory
+```
+
+| Argument | Description | Default |
+| :--- | :--- | :--- |
+| `server_url` | **Required.** The server's base URL, without any endpoint path (e.g., `http://10.0.0.1:8080`, not `http://10.0.0.1:8080/v1/chat/completions`). | None |
+| `endpoints` | **Required.** Endpoint path or list of endpoint paths served by the server (e.g., `v1/chat/completions`, `v1/embeddings`, or `['v1/chat/completions','v1/chat/score']`). | None |
+| `request_timeout_sec` | Optional. Per-request HTTP timeout in seconds (supported on all server runners, including `litert-lm` and `http-server`). | None (framework default) |
+
+Combine multiple runner arguments with commas:
+`--runner-args server_url=...,endpoints=...`.
+
+> [!NOTE]
+> The runner is stateless. Every request contains the full prompt, including
+> all message history, and no reset signal is sent between examples. If your
+> server uses KV caching, it must detect unrelated prompts (or empty history)
+> and clear its state itself.
+
 ### 🪶 Lighteval Framework
 
 `--framework lighteval` is an alternative evaluation framework alongside the default `lm-eval`. Install via `ai-edge-eval[lighteval]` (see [Optional Dependency Groups](#-optional-dependency-groups)).
@@ -295,43 +336,45 @@ ai-edge-eval \
 
 ## 🛠️ Custom Task CUJ
 
-`ai-edge-eval` makes it seamless to define and run custom evaluation benchmarks tailored to your specific datasets and metrics.
+`ai-edge-eval` makes it seamless to define and run custom evaluation benchmarks
+against any server endpoint.
 
 ### 1. Prepare the Dataset
 
-Prepare your evaluation dataset in JSON Lines (`.jsonl`) format, where each entry separates the input context (`messages`) and the expected output (`ground_truth`), along with optional `metadata`. 
-
-> [!NOTE]
-> The `messages` field strictly follows the canonical OpenAI Chat Completion format (a list of dictionaries specifying `role` and `content`).
+Prepare your evaluation dataset in JSON Lines (`.jsonl`) format or as a Python
+generator `dataset(task_args)`. Each row has `requests` (the list of JSON
+request bodies to POST in order for that row) and `ground_truth`, along with
+optional `metadata`. For chat-completions tasks,
+`chat_request(messages, generation_config)` builds an OpenAI-compatible request
+body and `chat_response_text(response)` extracts the generated assistant text:
 
 ```json
 {
-  "messages": [{"role": "user", "content": "What is the capital of France?"}],
+  "requests": [{"model": "default_model", "messages": [{"role": "user", "content": "What is the capital of France?"}], "temperature": 0.5, "max_tokens": 64, "stop": ["\n"]}],
   "ground_truth": "Paris"
 }
 {
-  "messages": [{"role": "user", "content": "Calculate 5 + 7"}],
+  "requests": [{"model": "default_model", "messages": [{"role": "user", "content": "Calculate 5 + 7"}], "temperature": 0.5, "max_tokens": 64, "stop": ["\n"]}],
   "ground_truth": "12"
 }
 ```
 
 ### 2. Task Definition
 
-To run custom evaluation benchmarks, register your generation parameters and evaluation hooks via a Python file (e.g., `register_custom_tasks.py`):
+Register your evaluation task via a Python file (e.g.,
+`register_custom_tasks.py`):
 
 ```python
 # File: register_custom_tasks.py
 
-from typing import Iterator
-from model_eval.config.generation_config import GenerationConfig
-from model_eval.custom_tasks.base import CustomTask, DatasetRow
-from model_eval.custom_tasks.registry import TaskRegistry
+from typing import Any, Iterator
+from model_eval.custom_tasks import CustomTask, DatasetRow, TaskRegistry, chat_response_text
 
 def exact_match(
-    preds: Iterator[str], gts: Iterator[str], rows: Iterator[DatasetRow[str]]
+    preds: Iterator[list[Any]], gts: Iterator[str], rows: Iterator[DatasetRow[str]]
 ) -> dict[str, float]:
-  # Retrieve generated text and ground truth text.
-  p = [text.strip().lower() for text in preds]
+  # Retrieve generated text from each row's first response and compare with ground truth.
+  p = [(chat_response_text(r[0]) or "").strip().lower() for r in preds]
   g = [text.strip().lower() for text in gts]
   accuracy = sum(pi == gi for pi, gi in zip(p, g)) / len(p)
   return {"exact_match": accuracy}
@@ -340,9 +383,6 @@ qa_task = CustomTask(
     name="my_custom_qa",
     dataset="path/to/dataset.jsonl",
     metric_fn=exact_match,
-    generation_config=GenerationConfig(
-        temperature=0.5, max_new_tokens=64, stop_sequences=["\n"]
-    )
 )
 
 TaskRegistry.global_registry().register(qa_task)
@@ -350,7 +390,8 @@ TaskRegistry.global_registry().register(qa_task)
 
 ### 3. Run Custom Evaluation
 
-Point the CLI to your custom registration file authored in Step 2 using the `--custom-tasks-file` flag:
+Point the CLI to your custom registration file using `--custom-tasks-file` and
+specify the target `endpoint` in `--eval-args`:
 
 ```bash
 ai-edge-eval \
@@ -359,9 +400,16 @@ ai-edge-eval \
       --tasks my_custom_qa \
       --framework custom \
       --custom-tasks-file register_custom_tasks.py \
-      --eval-args "limit=10" \
+      --eval-args "endpoint=v1/chat/completions,limit=10" \
       --output-dir your_result_directory
 ```
+
+`dataset` may also be a callable `dataset(task_args)` returning an iterator of
+`DatasetRow`. `task_args` holds the `--eval-args` entries the framework does not
+consume itself (it consumes `endpoint`, `limit`, `batch_size`, and `samples`),
+so a task can take its own configuration, e.g.
+`--eval-args endpoint=v1/chat/completions,split=dev`. File
+datasets (`.jsonl`/`.csv`) accept no task args; passing any is an error.
 
 ---
 
