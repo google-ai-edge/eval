@@ -41,6 +41,7 @@ class TestChatScoreLightevalModel(absltest.TestCase):
     config = mock.MagicMock()
     config.base_url = "http://127.0.0.1:8000/"
     config.model_name = "test-model"
+    config.timeout = 45.0
 
     with mock.patch.object(
         _chat_score_lighteval_model.httpx, "Client"
@@ -56,6 +57,7 @@ class TestChatScoreLightevalModel(absltest.TestCase):
       mock_doc.gold_index = 2
 
       res_ll = model.loglikelihood([mock_doc])
+    mock_httpx_cls.assert_called_once_with(timeout=45.0)
     self.assertLen(res_ll, 1)
     self.assertEqual(res_ll[0].logprobs, [-1.5, -1.5, -1.5])
     self.assertEqual(res_ll[0].argmax_logits_eq_gold, [True, True, True])
@@ -110,9 +112,11 @@ class TestChatScoreLightevalModel(absltest.TestCase):
     config.base_url = "http://127.0.0.1:8000/"
     config.model_name = "test-model"
     config.system_prompt = None
+    config.timeout = None
 
     with mock.patch("lighteval.models.endpoints.litellm_model.SampleCache"):
       model = _chat_score_lighteval_model.ChatScoreLightevalModel(config)
+      self.assertEqual(model._timeout_sec, 120.0)
       mock_doc = mock.MagicMock(
           spec=["query", "instruction", "fewshot_samples", "images"]
       )

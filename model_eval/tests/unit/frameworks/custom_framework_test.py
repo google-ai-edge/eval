@@ -26,7 +26,6 @@ class CustomFrameworkTest(absltest.TestCase):
   def test_generate_sends_payload_correctly(self):
     runner = mock.MagicMock()
     runner.server_url = "http://dummy"
-    runner.model_name = "fake-model"
 
     task = tasks.CustomTask(
         name="foo",
@@ -55,7 +54,7 @@ class CustomFrameworkTest(absltest.TestCase):
     mock_client.post.assert_called_once_with(
         "http://dummy/v1/chat/completions",
         json={
-            "model": "fake-model",
+            "model": "default_model",
             "messages": input_msgs,
             "temperature": 1.0,
             "max_tokens": 256,
@@ -77,7 +76,6 @@ class CustomFrameworkTest(absltest.TestCase):
   def test_generate_with_gen_kwargs(self):
     runner = mock.MagicMock()
     runner.server_url = "http://dummy"
-    runner.model_name = "fake"
 
     cfg = config.GenerationConfig(
         temperature=0.2, max_new_tokens=64, stop_sequences=["\n", "END"]
@@ -104,7 +102,7 @@ class CustomFrameworkTest(absltest.TestCase):
     mock_client.post.assert_called_once_with(
         "http://dummy/v1/chat/completions",
         json={
-            "model": "fake",
+            "model": "default_model",
             "messages": input_msgs,
             "temperature": 0.2,
             "max_tokens": 64,

@@ -17,6 +17,10 @@
 # Identifier for the local chat scoring evaluation model.
 LOCAL_CHAT_SCORE_MODEL_NAME = "local-chat-score"
 
+# Default `model` field sent in OpenAI-compatible requests when the client API
+# requires a placeholder string.
+DEFAULT_MODEL_NAME = "default_model"
+
 # Constants for OpenAI-compatible API endpoints:
 # Endpoint for chat generation completions.
 CHAT_COMPLETIONS_ENDPOINT = "v1/chat/completions"

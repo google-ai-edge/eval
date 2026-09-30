@@ -267,7 +267,7 @@ class CustomFramework(base.AbstractEvalFramework):
     resp = http_client.post(
         f"{runner.server_url}/{api_constants.CHAT_COMPLETIONS_ENDPOINT}",
         json={
-            "model": runner.model_name,
+            "model": api_constants.DEFAULT_MODEL_NAME,
             "messages": input_messages,
             "temperature": generation_config.temperature,
             "max_tokens": generation_config.max_new_tokens,

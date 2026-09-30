@@ -288,6 +288,7 @@ class EvalPipelineTest(absltest.TestCase):
             "enable_scoring": True,
             "thinking": None,
             "thinking_budget": None,
+            "request_timeout_sec": None,
         },
     )
 
