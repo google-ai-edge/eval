@@ -30,6 +30,7 @@ lighteval:
   - bigbench_hard
   - ifeval
   - mmmu_pro  # multimodal generation
+  - lcb:codegeneration_v6
   # Scoring tasks:
   - mmlu
   - arc
