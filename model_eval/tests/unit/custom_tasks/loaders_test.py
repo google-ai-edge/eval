@@ -27,7 +27,48 @@ class LoadersTest(absltest.TestCase):
     self.assertEqual(loaders.parse_samples("0:5:2", 10), [0, 2, 4])
 
   def test_parse_samples_comma(self):
-    self.assertEqual(loaders.parse_samples("0,2,4", 10), [0, 2, 4])
+    self.assertEqual(loaders.parse_samples("0,2,4,", 10), [0, 2, 4])
+
+  def test_load_dataset_callable_receives_task_args(self):
+    captured = {}
+
+    def gen(task_args):
+      captured["args"] = task_args
+      yield {"requests": [], "ground_truth": "ok"}
+
+    rows = list(loaders.load_dataset(gen, {"k": "v"}))
+    self.assertEqual(rows, [{"requests": [], "ground_truth": "ok"}])
+    self.assertEqual(captured["args"], {"k": "v"})
+
+    list(loaders.load_dataset(gen))
+    self.assertEqual(captured["args"], {})
+
+  def test_load_dataset_csv_and_unsupported_suffix(self):
+    csv_path = self.create_tempfile(
+        "data.csv",
+        content='data\n"{""requests"": [], ""ground_truth"": 1}"\n',
+    ).full_path
+    self.assertEqual(
+        list(loaders.load_dataset(csv_path)),
+        [{"requests": [], "ground_truth": 1}],
+    )
+    txt_path = self.create_tempfile("data.txt", content="").full_path
+    with self.assertRaisesRegex(ValueError, "Unsupported file type"):
+      list(loaders.load_dataset(txt_path))
+
+  def test_load_dataset_file_rejects_task_args(self):
+    path = self.create_tempfile(
+        "data.jsonl", content='{"requests": [], "ground_truth": 1}\n'
+    ).full_path
+    with self.assertRaisesRegex(
+        ValueError, r"Task args \['k'\] were given, but file datasets"
+    ):
+      list(loaders.load_dataset(path, {"k": "v"}))
+    # Empty task args are fine.
+    self.assertEqual(
+        list(loaders.load_dataset(path, {})),
+        [{"requests": [], "ground_truth": 1}],
+    )
 
 
 if __name__ == "__main__":

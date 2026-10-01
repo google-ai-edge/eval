@@ -37,6 +37,7 @@ from model_eval.api import pipeline as eval_pipeline
 from model_eval.frameworks import base as framework_base
 from model_eval.frameworks import registry as framework_registry
 from model_eval.runners import base as runners_base
+from model_eval.runners import http_server
 from model_eval.runners import litert_lm
 import click
 
@@ -44,6 +45,7 @@ import click
 # configuration classes.
 _CUSTOM_RUNNER_TYPES = {
     "litert-lm": litert_lm.LiteRtLmRunner.Config,
+    "http-server": http_server.HttpServerRunner.Config,
 }
 
 FLAGS = flags.FLAGS

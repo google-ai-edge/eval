@@ -17,6 +17,7 @@
 import json
 from typing import Any
 from absl import logging
+from model_eval.runners import base as runners_base
 
 
 def build_chat_score_messages(
@@ -91,3 +92,29 @@ def parse_chat_score_response(response: dict[str, Any]) -> tuple[float, bool]:
   is_greedy = bool(choice["logprobs"]["is_greedy"])
 
   return score, is_greedy
+
+
+def validate_endpoint(
+    runner: runners_base.AbstractRunner, endpoint: Any, framework: str
+) -> str:
+  """Returns `endpoint` without slashes after checking `runner` serves it.
+
+  Args:
+    runner: The runner exposing `endpoints`.
+    endpoint: Target server path, e.g. "v1/chat/completions" or "v1/embeddings".
+    framework: Framework name used in error messages.
+
+  Raises:
+    ValueError: If `endpoint` is missing/empty or not in `runner.endpoints`.
+  """
+  path = str(endpoint).strip("/") if endpoint is not None else ""
+  if not path:
+    raise ValueError(
+        f"endpoint is required in --eval-args for {framework} evaluation."
+    )
+  if path not in runner.endpoints:
+    raise ValueError(
+        f"{framework} requires endpoint {path!r}, but the runner only serves"
+        f" {list(runner.endpoints)!r}."
+    )
+  return path

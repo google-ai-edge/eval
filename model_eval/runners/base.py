@@ -15,40 +15,42 @@
 """Base runner abstractions."""
 
 import abc
-import dataclasses
 import enum
 from typing import Any
 
-from model_eval.api import constants as api_constants
 from model_eval.utils import introspection
 import pydantic
-import requests
-
-_DEFAULT_TIMEOUT_SECONDS = 300
 
 
 class RunnerType(enum.StrEnum):
   """Supported runner types."""
 
   LITERT_LM = "litert-lm"
-
-
-@dataclasses.dataclass
-class RunnerCapabilities:
-  """Flags detailing the supported functionality of a runner."""
-
-  # We by default support text scoring and generation.
-  text_scoring: bool = True
-  text_generation: bool = True
-  # Multimodal capabilities are optional.
-  multimodal_generation: bool = False
-  multimodal_scoring: bool = False
+  HTTP_SERVER = "http-server"
 
 
 class RunnerConfig(pydantic.BaseModel):
   """Configuration base class for runner definitions."""
 
   runner_type: str
+  # Per-request timeout in seconds; None means each framework's own default.
+  request_timeout_sec: float | None = None
+
+  @pydantic.field_validator("request_timeout_sec", mode="before")
+  @classmethod
+  def _validate_request_timeout_sec(cls, timeout_sec: Any) -> float | None:
+    """Returns `timeout_sec` as a positive float, or None if unset."""
+    if timeout_sec is None:
+      return None
+    try:
+      value = float(timeout_sec)
+    except (TypeError, ValueError):
+      value = 0.0
+    if isinstance(timeout_sec, bool) or not value > 0:
+      raise ValueError(
+          f"request_timeout_sec must be a positive number; got {timeout_sec!r}."
+      )
+    return value
 
   @classmethod
   @abc.abstractmethod
@@ -63,38 +65,13 @@ class RunnerConfig(pydantic.BaseModel):
 
 
 class AbstractRunner(abc.ABC):
-  """Base abstract interface for server-based runner implementations.
-
-  Server implementations are expected to expose two primary endpoints:
-  1. `/v1/chat/completions`: Used for standard chat generation, adhering to the
-     standard OpenAI API schema.
-  2. `/v1/chat/score`: Custom endpoint for scoring a chat continuation. The last
-     message in the request must have `role="assistant"` (representing the
-     continuation string to be scored), while all preceding messages form the
-     context.
-     It returns results structured according to the OpenAI `/v1/completions`
-     response schema (using a `choices` list and a `logprobs` object), but
-     simplifies client-side evaluation by returning aggregate scoring metadata:
-     {
-       "choices": [
-         {
-           "score": float,          # Server-computed loglikelihood score for
-           the continuation.
-           "logprobs": {
-             "is_greedy": bool,     # True if the continuation matches greedy
-             decoding.
-             ...
-           }
-         }
-       ]
-     }
-  """
+  """Base abstract interface for server-based runner implementations."""
 
   config: type[RunnerConfig] = RunnerConfig
 
   @abc.abstractmethod
   def start(self) -> None:
-    """Start the OpenAI-compatible HTTP server. Blocks until ready."""
+    """Start the HTTP server. Blocks until ready."""
 
   @abc.abstractmethod
   def stop(self) -> None:
@@ -107,14 +84,13 @@ class AbstractRunner(abc.ABC):
 
   @property
   @abc.abstractmethod
-  def model_name(self) -> str:
-    """Model identifier sent to frameworks as the model= parameter."""
+  def endpoints(self) -> tuple[str, ...]:
+    """Server paths (without leading/trailing slashes) served by this runner."""
 
   @property
   @abc.abstractmethod
-  def capabilities(self) -> RunnerCapabilities:
-    """Returns the capabilities profile of the runner."""
-    ...
+  def request_timeout_sec(self) -> float | None:
+    """Per-request timeout in seconds; None means the framework's default."""
 
   @classmethod
   def describe_runner_args(cls) -> list[dict[str, Any]]:
@@ -134,47 +110,3 @@ class AbstractRunner(abc.ABC):
       self._ref_count -= 1
       if self._ref_count == 0:
         self.stop()
-
-  def _validate_completions(self) -> None:
-    """Verifies the /v1/chat/completions endpoint."""
-    url = f"{self.server_url}/{api_constants.CHAT_COMPLETIONS_ENDPOINT}"
-    payload = {
-        "model": self.model_name,
-        "messages": [{"role": "user", "content": "hi"}],
-        "max_tokens": 1,
-    }
-    try:
-      response = requests.post(
-          url, json=payload, timeout=_DEFAULT_TIMEOUT_SECONDS
-      )
-      response.raise_for_status()
-      if "choices" not in response.json():
-        raise ValueError("Response missing 'choices' field.")
-    except Exception as e:
-      raise RuntimeError(
-          f"Runner failed generation validation at {url}: {e}"
-      ) from e
-
-  def _validate_scoring(self) -> None:
-    """Verifies the /v1/chat/score endpoint."""
-    url = f"{self.server_url}/{api_constants.CHAT_SCORE_ENDPOINT}"
-    payload = {
-        "model": self.model_name,
-        "messages": [
-            {"role": "user", "content": "hello"},
-            {"role": "assistant", "content": "hi"},
-        ],
-    }
-    try:
-      response = requests.post(
-          url, json=payload, timeout=_DEFAULT_TIMEOUT_SECONDS
-      )
-      response.raise_for_status()
-      data = response.json()
-      choice = data["choices"][0]
-      if "score" not in choice or "logprobs" not in choice:
-        raise ValueError("Response missing 'score' or 'logprobs' fields.")
-    except Exception as e:
-      raise RuntimeError(
-          f"Runner failed scoring validation at {url}: {e}"
-      ) from e

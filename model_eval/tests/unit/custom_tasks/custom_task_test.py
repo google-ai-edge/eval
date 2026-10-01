@@ -21,7 +21,7 @@ from model_eval import custom_tasks as tasks
 
 class CustomTaskTest(absltest.TestCase):
 
-  def test_default_construction(self):
+  def test_construction(self):
     def dummy_metric(preds, gts, rows):
       return {"val": 1.0}
 
@@ -30,42 +30,61 @@ class CustomTaskTest(absltest.TestCase):
     )
     self.assertEqual(task.name, "t1")
     self.assertEqual(task.dataset, "f.jsonl")
-    self.assertEqual(task.generation_config.temperature, 1.0)
+    self.assertIs(task.metric_fn, dummy_metric)
 
-  def test_custom_construction(self):
-    cfg = config.GenerationConfig(temperature=0.5)
-    task = tasks.CustomTask(
-        name="t2",
-        dataset="f.csv",
-        metric_fn=lambda p, g, r: {},
-        generation_config=cfg,
-    )
-    self.assertEqual(task.generation_config.temperature, 0.5)
-
-  def test_openai_messages_alias(self):
-    sample_message: tasks.OpenAIMessages = [
-        {"role": "user", "content": "hello"},
-        {"role": "assistant", "content": "world"},
+  def test_requests_alias_and_dataset_row_metadata(self):
+    reqs: tasks.Requests = [
+        {"op": "index", "video_path": "v.mp4"},
+        {"op": "query", "query": "hello"},
     ]
-    self.assertIsInstance(sample_message, list)
-    self.assertLen(sample_message, 2)
-    self.assertEqual(sample_message[0]["role"], "user")
-
-  def test_dataset_row_metadata(self):
     row_without_metadata: tasks.DatasetRow[int] = {
-        "messages": [{"role": "user", "content": "hello"}],
+        "requests": reqs,
         "ground_truth": 1,
     }
     self.assertNotIn("metadata", row_without_metadata)
 
     row_with_metadata: tasks.DatasetRow[int] = {
-        "messages": [{"role": "user", "content": "hello"}],
+        "requests": reqs,
         "ground_truth": 1,
         "metadata": {"source": "test_data"},
     }
     self.assertIn("metadata", row_with_metadata)
     self.assertEqual(row_with_metadata["metadata"]["source"], "test_data")
 
+  def test_chat_request_defaults_and_custom_config(self):
+    messages = [{"role": "user", "content": "hello"}]
+    self.assertEqual(
+        tasks.chat_request(messages),
+        {
+            "model": "default_model",
+            "messages": messages,
+            "temperature": 1.0,
+            "max_tokens": 256,
+            "stop": None,
+        },
+    )
+    cfg = config.GenerationConfig(
+        temperature=0.2, max_new_tokens=64, stop_sequences=["\n", "END"]
+    )
+    self.assertEqual(
+        tasks.chat_request(messages, cfg),
+        {
+            "model": "default_model",
+            "messages": messages,
+            "temperature": 0.2,
+            "max_tokens": 64,
+            "stop": ["\n", "END"],
+        },
+    )
+
+  def test_chat_response_text_extracts_content_or_returns_none(self):
+    self.assertEqual(
+        tasks.chat_response_text(
+            {"choices": [{"message": {"content": "generated text"}}]}
+        ),
+        "generated text",
+    )
+    self.assertIsNone(tasks.chat_response_text(None))
 
 
 if __name__ == "__main__":

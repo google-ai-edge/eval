@@ -18,10 +18,14 @@ import dataclasses
 from typing import Any, Callable, Generic, Iterator, NotRequired, TypedDict, TypeVar
 
 from model_eval import config
+from model_eval.api import constants as api_constants
 
-# Type alias for OpenAI messages format (list of dictionaries with 'role' and
-# 'content').
-OpenAIMessages = list[dict]
+# Type alias for the request payloads of a dataset row: a list of JSON-object
+# dictionaries POSTed in order to the target endpoint.
+Requests = list[dict[str, Any]]
+
+# Type alias for task-specific key-value arguments forwarded from `--eval-args`.
+TaskArgs = dict[str, Any]
 
 # Type alias for the prediction type and ground truth type. They are not
 # necessarily the same.
@@ -30,33 +34,70 @@ GroundTruthType = TypeVar("GroundTruthType")
 
 
 class DatasetRow(TypedDict, Generic[GroundTruthType]):
-  """A dataset row separating input context and expected output with optional metadata."""
+  """A dataset row with input requests, ground truth, and optional metadata."""
 
-  messages: OpenAIMessages
+  requests: Requests
   ground_truth: GroundTruthType
   metadata: NotRequired[dict[str, Any]]
 
 
+def chat_request(
+    messages: list[dict[str, Any]],
+    generation_config: config.GenerationConfig | None = None,
+) -> dict[str, Any]:
+  """Builds an OpenAI-compatible chat completions request body.
+
+  Args:
+    messages: OpenAI-style chat messages (`[{"role": ..., "content": ...}]`).
+    generation_config: Optional generation parameters (temperature, max tokens,
+      stop sequences). Defaults to `GenerationConfig()`.
+
+  Returns:
+    A JSON-serializable request payload for `v1/chat/completions`.
+  """
+  cfg = generation_config or config.GenerationConfig()
+  return {
+      "model": api_constants.DEFAULT_MODEL_NAME,
+      "messages": messages,
+      "temperature": cfg.temperature,
+      "max_tokens": cfg.max_new_tokens,
+      "stop": cfg.stop_sequences or None,
+  }
+
+
+def chat_response_text(response: dict[str, Any] | None) -> str | None:
+  """Extracts the assistant reply text from a chat completions response.
+
+  Args:
+    response: Decoded JSON response from `v1/chat/completions`, or None if the
+      request failed.
+
+  Returns:
+    The first choice's message content, or None if `response` is None.
+  """
+  if response is None:
+    return None
+  return response["choices"][0]["message"]["content"]
+
+
 @dataclasses.dataclass
 class CustomTask(Generic[PredictionType, GroundTruthType]):
-  """Definition of a generation-only custom evaluation task.
+  """Definition of a custom evaluation task.
 
   Attributes:
     name: Unique string identifier for the custom task.
-    dataset: Local file path (.jsonl/.csv) or a callable returning an iterator
-      of DatasetRow representing the dataset rows.
+    dataset: Local file path (.jsonl/.csv) or a callable `dataset(task_args)`
+      returning an iterator of DatasetRow representing the dataset rows.
+      `task_args` holds the task-specific `--eval-args` entries.
     metric_fn: A function for computing evaluation metrics. Takes three parallel
-      iterators of equal length: the generated predictions, the expected ground
-      truths, and the corresponding full DatasetRow objects, in matching
-      order. Returns a dictionary mapping metric names to their computed values.
-    generation_config: Configuration for per-request generation parameters.
+      iterators of equal length: the generated predictions (each a list of
+      per-request responses for that row), the expected ground truths, and the
+      corresponding full DatasetRow objects, in matching order. Returns a
+      dictionary mapping metric names to their computed values.
   """
 
   name: str
-  dataset: str | Callable[[], Iterator[DatasetRow[GroundTruthType]]]  # pytype: disable=invalid-annotation
+  dataset: str | Callable[[TaskArgs], Iterator[DatasetRow[GroundTruthType]]]
   metric_fn: Callable[
       [Iterator[PredictionType], Iterator[GroundTruthType], Iterator[DatasetRow[GroundTruthType]]], dict[str, Any]  # pytype: disable=invalid-annotation
   ]
-  generation_config: config.GenerationConfig = dataclasses.field(
-      default_factory=config.GenerationConfig
-  )

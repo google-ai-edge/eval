@@ -22,6 +22,7 @@ import warnings
 from model_eval.api import constants
 from model_eval.frameworks import base
 from model_eval.frameworks import registry
+from model_eval.frameworks import utils
 from model_eval.runners import base as runners_base
 from model_eval.utils import introspection
 import lm_eval
@@ -205,7 +206,13 @@ def _model_args(runner: runners_base.AbstractRunner) -> str:
   Returns:
       A string containing the formatted model arguments.
   """
-  return f"base_url={runner.server_url},model={runner.model_name}"
+  model_name = (
+      getattr(runner, "model_name", None) or constants.DEFAULT_MODEL_NAME
+  )
+  args = f"base_url={runner.server_url},model={model_name}"
+  if runner.request_timeout_sec is not None:
+    args += f",timeout={runner.request_timeout_sec}"
+  return args
 
 
 def _parse_lm_eval_results(raw: dict[str, Any] | None) -> base.EvalResults:
@@ -270,7 +277,14 @@ class LmEvalFramework(base.AbstractEvalFramework):
 
     Returns:
         The results of the evaluation.
+
+    Raises:
+        ValueError: If the runner does not serve `v1/chat/completions`, or
+          `apply_chat_template` is False.
     """
+    utils.validate_endpoint(
+        runner, constants.CHAT_COMPLETIONS_ENDPOINT, "lm-eval"
+    )
     params = self._from_unified_eval_args(
         limit, sample_range, batch_size, eval_args, default_batch_size=1
     )

@@ -17,14 +17,20 @@
 from model_eval.custom_tasks import base
 from model_eval.custom_tasks import registry
 
-OpenAIMessages = base.OpenAIMessages
+Requests = base.Requests
+TaskArgs = base.TaskArgs
 CustomTask = base.CustomTask
 DatasetRow = base.DatasetRow
+chat_request = base.chat_request
+chat_response_text = base.chat_response_text
 TaskRegistry = registry.TaskRegistry
 
 __all__ = [
-    "OpenAIMessages",
+    "Requests",
+    "TaskArgs",
     "CustomTask",
     "DatasetRow",
+    "chat_request",
+    "chat_response_text",
     "TaskRegistry",
 ]
