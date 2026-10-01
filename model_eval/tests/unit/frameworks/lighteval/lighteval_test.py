@@ -35,7 +35,9 @@ class TestLightEvalAdapter(absltest.TestCase):
     super().setUp()
     self.mock_runner = mock.MagicMock(spec=runner_base.AbstractRunner)
     self.mock_runner.server_url = "http://127.0.0.1:8080"
-    self.mock_runner.model_name = "test-model"
+    self.mock_runner.model_name = "test_model"
+    self.mock_runner.endpoints = ("v1/chat/completions", "v1/chat/score")
+    self.mock_runner.request_timeout_sec = None
 
   @mock.patch.object(lighteval.lighteval_pipeline, "Pipeline")
   def test_evaluate(self, mock_pipeline_cls):
@@ -43,7 +45,7 @@ class TestLightEvalAdapter(absltest.TestCase):
     mock_pipeline.get_results.return_value = {
         "results": {"task1": {"acc": 0.9}},
         "samples": {},
-        "config": {"model": "test-model"},
+        "config": {"model": "test_model"},
     }
     mock_pipeline.evaluation_tracker.details = {}
 
@@ -57,12 +59,28 @@ class TestLightEvalAdapter(absltest.TestCase):
     self.assertEqual(kwargs["tasks"], "task1")
     self.assertEqual(kwargs["pipeline_parameters"].max_samples, 100)
     self.assertIsNotNone(kwargs["model"])
+    self.assertEqual(kwargs["model"]._model_name, "openai/test_model")
+    self.assertEqual(kwargs["model"]._timeout_sec, 120.0)
 
     mock_pipeline.evaluate.assert_called_once()
     mock_pipeline.save_and_push_results.assert_called_once()
 
     self.assertEqual(results.framework_type, "lighteval")
     self.assertEqual(results.aggregated_metrics["task1"]["acc"], 0.9)
+
+  @mock.patch.object(lighteval.lighteval_pipeline, "Pipeline")
+  def test_evaluate_defaults_model_name_and_forwards_timeout(
+      self, mock_pipeline_cls
+  ):
+    mock_pipeline = mock_pipeline_cls.return_value
+    mock_pipeline.get_results.return_value = {"results": {}, "samples": {}}
+    mock_pipeline.evaluation_tracker.details = {}
+    del self.mock_runner.model_name
+    self.mock_runner.request_timeout_sec = 45.0
+    lighteval.LightEvalFramework().evaluate(self.mock_runner, ["task1"])
+    model = mock_pipeline_cls.call_args.kwargs["model"]
+    self.assertEqual(model._model_name, "openai/default_model")
+    self.assertEqual(model._timeout_sec, 45.0)
 
   @mock.patch.object(lighteval.lighteval_pipeline, "Pipeline")
   def test_evaluate_native(self, mock_pipeline_cls):
@@ -160,6 +178,15 @@ class TestLightEvalAdapter(absltest.TestCase):
           batch_size=8,
           eval_args={"batch_size": 8},
       )
+
+  @mock.patch.object(lighteval.lighteval_pipeline, "Pipeline")
+  def test_evaluate_rejects_non_chat_runner_endpoint(self, mock_pipeline_cls):
+    self.mock_runner.endpoints = ("v1/embeddings",)
+    with self.assertRaisesRegex(
+        ValueError, "lighteval requires endpoint 'v1/chat/completions'"
+    ):
+      lighteval.LightEvalFramework().evaluate(self.mock_runner, ["task1"])
+    mock_pipeline_cls.assert_not_called()
 
   def test_describe_eval_args(self):
     framework = lighteval.LightEvalFramework()

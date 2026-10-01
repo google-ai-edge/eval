@@ -20,6 +20,7 @@ import unittest
 from unittest import mock
 
 from model_eval.frameworks import utils
+from model_eval.runners import base as runners_base
 
 
 class UtilsTest(unittest.TestCase):
@@ -255,6 +256,42 @@ class ParseChatScoreResponseEdgeCasesTest(unittest.TestCase):
     score, is_greedy = utils.parse_chat_score_response(data)
     self.assertEqual(score, -2.5)
     self.assertFalse(is_greedy)
+
+
+class ValidateEndpointTest(unittest.TestCase):
+
+  def test_returns_normalized_supported_endpoint(self):
+    runner = _mock_runner(("v1/chat/completions", "v1/embeddings"))
+    self.assertEqual(
+        utils.validate_endpoint(runner, "/v1/embeddings/", "custom"),
+        "v1/embeddings",
+    )
+
+  def test_rejects_missing_or_empty_endpoint(self):
+    runner = _mock_runner(("v1/embeddings",))
+    for bad in (None, "", "/"):
+      with self.subTest(bad=bad):
+        with self.assertRaisesRegex(
+            ValueError, "endpoint is required in --eval-args for custom"
+        ):
+          utils.validate_endpoint(runner, bad, "custom")
+
+  def test_rejects_unsupported_endpoint(self):
+    runner = _mock_runner(("v1/embeddings",))
+    with self.assertRaisesRegex(
+        ValueError,
+        r"lm-eval requires endpoint 'v1/chat/completions', but the runner only"
+        r" serves \['v1/embeddings'\]",
+    ):
+      utils.validate_endpoint(runner, "v1/chat/completions", "lm-eval")
+
+
+def _mock_runner(
+    endpoints: tuple[str, ...],
+) -> runners_base.AbstractRunner:
+  runner = mock.MagicMock(spec=runners_base.AbstractRunner)
+  runner.endpoints = endpoints
+  return runner
 
 
 if __name__ == "__main__":

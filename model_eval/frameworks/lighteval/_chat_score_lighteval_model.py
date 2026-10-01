@@ -160,6 +160,7 @@ class ChatScoreLightevalModel(litellm_model.LiteLLMClient):
       self._server_url = self._server_url[:-3]
     self._score_url = f"{self._server_url}/{api_constants.CHAT_SCORE_ENDPOINT}"
     self._model_name = config.model_name
+    self._timeout_sec = getattr(config, "timeout", None) or 120.0
 
     self.prompt_manager = MultimodalPromptManager(
         use_chat_template=True,
@@ -171,7 +172,7 @@ class ChatScoreLightevalModel(litellm_model.LiteLLMClient):
       self, docs: list[Any], override_bs: Any = None
   ) -> List[model_output.ModelResponse]:
     responses = []
-    with httpx.Client(timeout=120.0) as client:
+    with httpx.Client(timeout=self._timeout_sec) as client:
       for doc in docs:
         context = doc.query
         scores = []

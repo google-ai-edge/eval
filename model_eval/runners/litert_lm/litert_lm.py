@@ -18,12 +18,16 @@ import os
 import threading
 from typing import Any, Callable
 
+from model_eval.api import constants as api_constants
 from model_eval.runners import base
 from model_eval.runners import registry
 from model_eval.runners.litert_lm import _litert_lm_server
+import requests
 import uvicorn
 
 import litert_lm
+
+_DEFAULT_TIMEOUT_SECONDS = 300
 
 
 def _resolve_model_path(path: str) -> str:  # pylint: disable=g-doc-args
@@ -117,7 +121,32 @@ def _clamp_log_severity(severity: int) -> litert_lm.LogSeverity:
 
 @registry.register_runner(base.RunnerType.LITERT_LM)
 class LiteRtLmRunner(base.AbstractRunner):
-  """Runner using LiteRT LM backend."""
+  """Runner using LiteRT LM backend.
+
+  Exposes two primary HTTP endpoints:
+  1. `/v1/chat/completions`: Used for standard chat generation, adhering to the
+     standard OpenAI API schema.
+  2. `/v1/chat/score`: Custom endpoint for scoring a chat continuation. The last
+     message in the request must have `role="assistant"` (representing the
+     continuation string to be scored), while all preceding messages form the
+     context.
+     It returns results structured according to the OpenAI `/v1/completions`
+     response schema (using a `choices` list and a `logprobs` object), but
+     simplifies client-side evaluation by returning aggregate scoring metadata:
+     {
+       "choices": [
+         {
+           "score": float,          # Server-computed loglikelihood score for
+           the continuation.
+           "logprobs": {
+             "is_greedy": bool,     # True if the continuation matches greedy
+             decoding.
+             ...
+           }
+         }
+       ]
+     }
+  """
 
   class Config(base.RunnerConfig):
     """Configuration for LiteRtLmRunner."""
@@ -239,15 +268,11 @@ class LiteRtLmRunner(base.AbstractRunner):
     self._server_thread = threading.Thread(target=self._server.run, daemon=True)
     self._server_thread.start()
     _litert_lm_server.wait_for_server(
-        self.server_url, timeout=base._DEFAULT_TIMEOUT_SECONDS
+        self.server_url, timeout=_DEFAULT_TIMEOUT_SECONDS
     )
 
-    if (
-        self.capabilities.text_generation
-        or self.capabilities.multimodal_generation
-    ):
-      self._validate_completions()
-    if self.capabilities.text_scoring or self.capabilities.multimodal_scoring:
+    self._validate_completions()
+    if self._config.enable_scoring:
       self._validate_scoring()
 
   def stop(self) -> None:
@@ -259,22 +284,70 @@ class LiteRtLmRunner(base.AbstractRunner):
     self._server_thread = None
     self._engine = None
 
+  def _validate_completions(self) -> None:
+    """Verifies the /v1/chat/completions endpoint."""
+    url = f"{self.server_url}/{api_constants.CHAT_COMPLETIONS_ENDPOINT}"
+    payload = {
+        "model": self.model_name,
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 1,
+    }
+    try:
+      response = requests.post(
+          url, json=payload, timeout=_DEFAULT_TIMEOUT_SECONDS
+      )
+      response.raise_for_status()
+      if "choices" not in response.json():
+        raise ValueError("Response missing 'choices' field.")
+    except Exception as e:
+      raise RuntimeError(
+          f"Runner failed generation validation at {url}: {e}"
+      ) from e
+
+  def _validate_scoring(self) -> None:
+    """Verifies the /v1/chat/score endpoint."""
+    url = f"{self.server_url}/{api_constants.CHAT_SCORE_ENDPOINT}"
+    payload = {
+        "model": self.model_name,
+        "messages": [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi"},
+        ],
+    }
+    try:
+      response = requests.post(
+          url, json=payload, timeout=_DEFAULT_TIMEOUT_SECONDS
+      )
+      response.raise_for_status()
+      data = response.json()
+      choice = data["choices"][0]
+      if "score" not in choice or "logprobs" not in choice:
+        raise ValueError("Response missing 'score' or 'logprobs' fields.")
+    except Exception as e:
+      raise RuntimeError(
+          f"Runner failed scoring validation at {url}: {e}"
+      ) from e
+
   @property
   def server_url(self) -> str:
     return f"http://{self._config.host}:{self._config.port}"
 
   @property
-  def model_name(self) -> str:
-    return self._config.model_name
+  def endpoints(self) -> tuple[str, ...]:
+    if self._config.enable_scoring:
+      return (
+          api_constants.CHAT_COMPLETIONS_ENDPOINT,
+          api_constants.CHAT_SCORE_ENDPOINT,
+      )
+    return (api_constants.CHAT_COMPLETIONS_ENDPOINT,)
 
   @property
-  def capabilities(self) -> base.RunnerCapabilities:
-    return base.RunnerCapabilities(
-        text_scoring=self._config.enable_scoring,
-        text_generation=True,
-        multimodal_scoring=False,
-        multimodal_generation=True,
-    )
+  def request_timeout_sec(self) -> float | None:
+    return self._config.request_timeout_sec
+
+  @property
+  def model_name(self) -> str:
+    return self._config.model_name
 
   @property
   def returns_greedy(self) -> bool:
