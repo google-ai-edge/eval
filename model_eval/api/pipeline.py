@@ -139,7 +139,7 @@ class EvalPipeline:
 
   def __init__(
       self,
-      model: runner_base.RunnerConfig | framework_base.NativeModelConfig,
+      model: runner_base.RunnerConfig | framework_base.NativeModelConfig | None,
       framework: framework_base.FrameworkType = framework_base.FrameworkType.LM_EVAL,
       tasks: tuple[str, ...] = (),
       limit: int | float | None = None,
@@ -154,7 +154,9 @@ class EvalPipeline:
 
     Args:
         model: The validated runner configuration or native model configuration
-          object.
+          object. May be None only for `framework='custom'` with the
+          `score_from_samples` eval arg, which scores previously generated
+          samples without running a model.
         framework: The target evaluation framework to trigger (e.g., 'lm-eval').
         tasks: Specific benchmark task names to evaluate on.
         limit: Maximum samples or fraction per task.
@@ -184,7 +186,7 @@ class EvalPipeline:
     # Resolve the identifier: use runner_type for custom runners, or model for
     # native.
     runner = getattr(model, "runner_type", getattr(model, "model", "native"))
-    if allowed_runners and runner not in allowed_runners:
+    if model is not None and allowed_runners and runner not in allowed_runners:
       raise ValueError(
           f"Runner not in allowlist for framework '{framework}': {runner}"
       )
@@ -206,6 +208,29 @@ class EvalPipeline:
           "Conflicting options: 'limit' and 'sample_range' cannot be used"
           " together."
       )
+    score_from_samples = bool(self._eval_args.get("score_from_samples"))
+    inference_only = bool(self._eval_args.get("inference_only"))
+    if score_from_samples and inference_only:
+      raise ValueError(
+          "Cannot set both 'inference_only' and 'score_from_samples'."
+      )
+    if (
+        score_from_samples or inference_only
+    ) and self._framework != framework_base.FrameworkType.CUSTOM:
+      raise ValueError(
+          "'inference_only' and 'score_from_samples' are only supported with"
+          " framework='custom'."
+      )
+    if self._model is None and not score_from_samples:
+      if self._framework != framework_base.FrameworkType.CUSTOM:
+        raise ValueError(
+            "A model/runner config is required unless framework='custom' is"
+            " scoring from samples."
+        )
+      raise ValueError(
+          "A runner config is required unless eval_args['score_from_samples']"
+          " is set."
+      )
     if isinstance(self._model, framework_base.NativeModelConfig):
       if self._framework == framework_base.FrameworkType.CUSTOM:
         raise ValueError(
@@ -220,6 +245,9 @@ class EvalPipeline:
 
   def run(self) -> framework_base.EvalResults:
     """Executes the evaluation workflow end-to-end via the selected route."""
+    if self._model is None or self._eval_args.get("score_from_samples"):
+      # Scoring-only path: re-evaluate metrics from a samples file.
+      return self._run_from_samples()
     if isinstance(self._model, runner_base.RunnerConfig):
       # Custom runner-based execution path.
       return self._run_with_runner()
@@ -286,6 +314,22 @@ class EvalPipeline:
           batch_size=self._batch_size,
           eval_args=self._eval_args,
       )
+    self._write_results(results)
+    return results
+
+  def _run_from_samples(self) -> framework_base.EvalResults:
+    """Runs only the metric stage over a previously written samples file."""
+    framework = framework_registry.get_framework(self._framework)
+    # `_validate` guarantees framework='custom', whose `evaluate` accepts
+    # `runner=None` when scoring from samples.
+    results = framework.evaluate(
+        runner=None,  # pyrefly: ignore[bad-argument-type]
+        tasks=self._tasks,
+        limit=self._limit,
+        sample_range=self._sample_range,
+        batch_size=self._batch_size,
+        eval_args=self._eval_args,
+    )
     self._write_results(results)
     return results
 

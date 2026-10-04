@@ -26,6 +26,7 @@
   - [1. Prepare the Dataset](#1-prepare-the-dataset)
   - [2. Task Definition](#2-task-definition)
   - [3. Run Custom Evaluation](#3-run-custom-evaluation)
+  - [4. Staged Execution](#4-staged-execution)
 - [🔍 Discovery Commands](#-discovery-commands)
 - [⚖️ Dataset Licensing and Terms of Use](#️-dataset-licensing-and-terms-of-use)
 
@@ -423,13 +424,48 @@ ai-edge-eval \
    `--runner-args "...,model_name=gemma-4-E2B-it"` for `http-server`; local
    runners such as `litert-lm` have none), and
 2. the `--eval-args` entries the framework does not consume itself (it consumes
-   `limit`, `batch_size`, and `samples`), so a task can take its own
-   configuration, e.g. `--eval-args split=dev`.
+   `limit`, `batch_size`, `samples`, `inference_only`, and
+   `score_from_samples`), so a task can take its own configuration, e.g.
+   `--eval-args split=dev`.
 
 On a key collision `--eval-args` win. A chat task typically reads
 `task_args.get("model_name")` and passes it to
 `chat_request(..., model_name=...)`. File datasets (`.jsonl`/`.csv`) accept no
 eval-args task args; passing any is an error (`server_args` are ignored).
+
+### 4. Staged Execution
+
+For custom tasks that pair fast on-device inference with slow or offline scoring,
+you can decouple inference from metric calculation into two stages:
+
+1. **Stage 1 — Inference only (`--inference-only`)**: Sends requests to the
+   runner and saves predictions and row metadata to
+   `<output_dir>/run_<ts>_samples.jsonl`, skipping `metric_fn`:
+
+   ```bash
+   ai-edge-eval \
+         --runner http-server \
+         --runner-args "server_url=http://<address>:<port>" \
+         --tasks my_custom_qa \
+         --framework custom \
+         --custom-tasks-file register_custom_tasks.py \
+         --inference-only \
+         --output-dir your_result_directory
+   ```
+
+2. **Stage 2 — Score from cached samples (`--score-from-samples`)**: Reloads
+   rows, predictions, and errors from a previously written `samples.jsonl` and
+   runs `metric_fn` without starting a runner. Any `--eval-args` passed at
+   scoring time override the cached `task_args` in each row's metadata:
+
+   ```bash
+   ai-edge-eval \
+         --tasks my_custom_qa \
+         --framework custom \
+         --custom-tasks-file register_custom_tasks.py \
+         --score-from-samples your_result_directory/run_<ts>_samples.jsonl \
+         --output-dir your_result_directory
+   ```
 
 ---
 
