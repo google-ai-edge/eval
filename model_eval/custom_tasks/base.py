@@ -53,9 +53,9 @@ class CustomTask(Generic[PredictionType, GroundTruthType]):
   """
 
   name: str
-  dataset: str | Callable[[], Iterator[DatasetRow[GroundTruthType]]]  # pytype: disable=invalid-annotation
+  dataset: str | Callable[[], Iterator[DatasetRow[GroundTruthType]]]
   metric_fn: Callable[
-      [Iterator[PredictionType], Iterator[GroundTruthType], Iterator[DatasetRow[GroundTruthType]]], dict[str, Any]  # pytype: disable=invalid-annotation
+      [Iterator[PredictionType], Iterator[GroundTruthType], Iterator[DatasetRow[GroundTruthType]]], dict[str, Any]
   ]
   generation_config: config.GenerationConfig = dataclasses.field(
       default_factory=config.GenerationConfig
