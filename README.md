@@ -19,6 +19,7 @@
 - [⚡ Running Evaluations](#-running-evaluations)
   - [LiteRT LM Runners](#🤖-litert-lm-runners)
   - [Direct Native Library Runners](#🚀-direct-native-library-runners-huggingface-etc)
+  - [HTTP Server Runner](#🌐-http-server-runner)
   - [Lighteval Framework](#🪶-lighteval-framework)
   - [Subsetting and Slicing Datasets](#✂️-subsetting-and-slicing-datasets)
 - [🛠️ Custom Task CUJ](#️-custom-task-cuj)
@@ -223,6 +224,56 @@ ai-edge-eval \
 
 > [!IMPORTANT]
 > For HuggingFace runners, `huggingface/repo` refers to the HuggingFace model ID, such as `Qwen/Qwen2.5-7B-Instruct` or `google/gemma-3-270m`.
+
+### 🌐 HTTP Server Runner
+
+The `http-server` runner evaluates a model served by an HTTP server that is
+already running, regardless of the backend or where it runs (e.g., a phone,
+another machine, or a cloud instance). Unlike the local runners, it does not
+manage the model lifecycle: it holds the server's base URL and the endpoint
+paths the server exposes, and the evaluation framework checks that the
+endpoint(s) it needs are served by the runner:
+
+| Framework / task type | Endpoint(s) required on the server |
+| :--- | :--- |
+| `lm-eval` or `lighteval`, generation tasks (e.g., `ifeval`) | `POST /v1/chat/completions` (OpenAI-compatible) |
+| `lm-eval` or `lighteval`, scoring tasks (e.g., `piqa`, `arc:easy`) | `POST /v1/chat/score` (served by the LiteRT-LM server; not part of the OpenAI API) |
+| `custom` | `POST /v1/chat/completions` (OpenAI-compatible), once per dataset row |
+
+```bash
+ai-edge-eval \
+      --runner http-server \
+      --runner-args "server_url=http://<address>:<port>,endpoints=['v1/chat/completions','v1/chat/score'],model_name=<model_name>" \
+      --tasks ifeval \
+      --framework lm-eval \
+      --limit 2 \
+      --output-dir your_result_directory
+```
+
+| Argument | Description | Default |
+| :--- | :--- | :--- |
+| `server_url` | **Required.** The server's base URL, without any endpoint path (e.g., `http://10.0.0.1:8080`, not `http://10.0.0.1:8080/v1/chat/completions`). | None |
+| `endpoints` | **Required.** Endpoint path or list of endpoint paths served by the server (e.g., `v1/chat/completions` or `['v1/chat/completions','v1/chat/score']`). | None |
+| `request_timeout_sec` | Optional. Per-request HTTP timeout in seconds (supported on all server runners, including `litert-lm` and `http-server`). | None (framework default) |
+| *any other key* | Optional. Kept verbatim as the runner's `server_args`; the runner itself never interprets them. Use this for values the **server** needs in requests, most commonly `model_name` when the server hosts several models. | `{}` |
+
+Combine multiple runner arguments with commas:
+`--runner-args server_url=...,endpoints=...,model_name=...`.
+
+The model is always chosen on the runner side. Local runners load it from
+`--model-path`; the `http-server` runner has no model to load, so you name the
+one the server should use via `model_name` in `--runner-args`:
+
+| Runner | Framework | How the model is chosen | What the framework sends |
+| :--- | :--- | :--- | :--- |
+| `litert-lm` | `lm-eval` / `lighteval` | `--model-path` (or `model_path=` in `--runner-args`); the runner starts a server for that model | `"model": "default_model"` (ignored by the LiteRT-LM server) |
+| `http-server` | `lm-eval` / `lighteval` | `--runner-args "...,model_name=<name>"` | `"model": "<name>"` in every OpenAI request (`default_model` if omitted) |
+
+> [!NOTE]
+> The runner is stateless. Every request contains the full prompt, including
+> all message history, and no reset signal is sent between examples. If your
+> server uses KV caching, it must detect unrelated prompts (or empty history)
+> and clear its state itself.
 
 ### 🪶 Lighteval Framework
 

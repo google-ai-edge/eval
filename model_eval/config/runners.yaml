@@ -20,8 +20,11 @@ lm_eval:
   - hf-auto
   - huggingface
   - hf-multimodal
+  - http-server
 custom:
   - litert-lm
+  - http-server
 lighteval:
   - litert-lm
   - accelerate
+  - http-server
