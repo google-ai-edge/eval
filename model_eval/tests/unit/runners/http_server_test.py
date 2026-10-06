@@ -22,7 +22,6 @@ from model_eval.runners import http_server
 from model_eval.runners import registry
 
 _TIMEOUT_ERROR = "request_timeout_sec must be a positive number"
-_ENDPOINTS_ERROR = "endpoints must be a non-empty path or list of paths"
 
 
 class HttpServerConfigTest(parameterized.TestCase):
@@ -37,7 +36,7 @@ class HttpServerConfigTest(parameterized.TestCase):
     config = http_server.HttpServerRunner.Config.from_unified_args(
         None,
         None,
-        {"server_url": server_url, "endpoints": "v1/chat/completions"},
+        {"server_url": server_url},
     )
     self.assertEqual(config.server_url, expected)
     self.assertEqual(config.runner_type, base.RunnerType.HTTP_SERVER)
@@ -52,37 +51,16 @@ class HttpServerConfigTest(parameterized.TestCase):
       http_server.HttpServerRunner.Config.from_unified_args(
           None,
           None,
-          {"server_url": server_url, "endpoints": "v1/chat/completions"},
+          {"server_url": server_url},
       )
-
-  @parameterized.named_parameters(
-      ("single_str", "v1/chat/completions", ("v1/chat/completions",)),
-      (
-          "single_with_slashes",
-          "/v1/chat/completions/",
-          ("v1/chat/completions",),
-      ),
-      (
-          "list_of_paths",
-          ["/v1/chat/completions/", "v1/chat/score"],
-          ("v1/chat/completions", "v1/chat/score"),
-      ),
-      ("tuple_of_paths", ("a", "/b/"), ("a", "b")),
-  )
-  def test_endpoints(self, endpoints, expected):
-    config = http_server.HttpServerRunner.Config.from_unified_args(
-        None, None, {"server_url": "http://host:1", "endpoints": endpoints}
-    )
-    self.assertEqual(config.endpoints, expected)
 
   def test_ignores_model_path_and_device(self):
     config = http_server.HttpServerRunner.Config.from_unified_args(
         "/path/to/model",
         "gpu",
-        {"server_url": "http://host:1", "endpoints": "v1/chat/completions"},
+        {"server_url": "http://host:1"},
     )
     self.assertEqual(config.server_url, "http://host:1")
-    self.assertEqual(config.endpoints, ("v1/chat/completions",))
     self.assertEqual(config.server_args, {})
 
   def test_collects_unknown_runner_args_as_server_args(self):
@@ -91,7 +69,6 @@ class HttpServerConfigTest(parameterized.TestCase):
         None,
         {
             "server_url": "http://host:1",
-            "endpoints": "v1/chat/completions",
             "request_timeout_sec": 10,
             "model_name": "gemma-4-E2B-it",
             "api_version": 2,
@@ -103,8 +80,8 @@ class HttpServerConfigTest(parameterized.TestCase):
     )
 
   @parameterized.named_parameters(
-      ("missing", {"endpoints": "v1/chat/completions"}),
-      ("empty", {"server_url": "", "endpoints": "v1/chat/completions"}),
+      ("missing", {}),
+      ("empty", {"server_url": ""}),
   )
   def test_requires_server_url(self, runner_args):
     with self.assertRaisesRegex(ValueError, "server_url is required"):
@@ -112,89 +89,30 @@ class HttpServerConfigTest(parameterized.TestCase):
           None, None, runner_args
       )
 
-  def test_requires_endpoints(self):
-    with self.assertRaisesRegex(ValueError, "endpoints is required"):
-      http_server.HttpServerRunner.Config.from_unified_args(
-          None, None, {"server_url": "http://host:1"}
-      )
-
   def test_cli_builds_http_server_config(self):
     config = main._build_model_config(
         "http-server",
-        "server_url=http://host:1/,"
-        "endpoints=['/v1/chat/completions','v1/chat/score'],"
-        "model_name=gemma-4-E2B-it",
+        "server_url=http://host:1/,model_name=gemma-4-E2B-it",
     )
     self.assertIsInstance(config, http_server.HttpServerRunner.Config)
     self.assertEqual(config.server_url, "http://host:1")
-    self.assertEqual(
-        config.endpoints, ("v1/chat/completions", "v1/chat/score")
-    )
     self.assertIsNone(config.request_timeout_sec)
     self.assertEqual(config.server_args, {"model_name": "gemma-4-E2B-it"})
 
-  def test_cli_builds_single_endpoint_and_timeout(self):
+  def test_cli_builds_timeout(self):
     config = main._build_model_config(
         "http-server",
-        "server_url=http://host:1,endpoints=/v1/chat/completions/,"
-        "request_timeout_sec=1800",
+        "server_url=http://host:1,request_timeout_sec=1800",
     )
-    self.assertEqual(config.endpoints, ("v1/chat/completions",))
     self.assertEqual(config.request_timeout_sec, 1800.0)
 
   @parameterized.named_parameters(
-      (
-          "empty_str",
-          {"endpoints": ""},
-          "Each endpoint must be a non-empty path",
-      ),
-      (
-          "slash_str",
-          {"endpoints": "/"},
-          "Each endpoint must be a non-empty path",
-      ),
-      (
-          "empty_list",
-          {"endpoints": []},
-          "endpoints must contain at least one path",
-      ),
-      (
-          "list_with_empty",
-          {"endpoints": ["a", "/"]},
-          "Each endpoint must be a non-empty path",
-      ),
-      (
-          "list_with_int",
-          {"endpoints": [1]},
-          "Each endpoint must be a non-empty string",
-      ),
-      (
-          "non_sequence",
-          {"endpoints": 123},
-          "endpoints must be a path string or a list of path strings",
-      ),
-      (
-          "zero_timeout",
-          {"endpoints": "op", "request_timeout_sec": 0},
-          _TIMEOUT_ERROR,
-      ),
-      (
-          "negative_timeout",
-          {"endpoints": "op", "request_timeout_sec": -1},
-          _TIMEOUT_ERROR,
-      ),
-      (
-          "text_timeout",
-          {"endpoints": "op", "request_timeout_sec": "soon"},
-          _TIMEOUT_ERROR,
-      ),
-      (
-          "bool_timeout",
-          {"endpoints": "op", "request_timeout_sec": True},
-          _TIMEOUT_ERROR,
-      ),
+      ("zero_timeout", {"request_timeout_sec": 0}, _TIMEOUT_ERROR),
+      ("negative_timeout", {"request_timeout_sec": -1}, _TIMEOUT_ERROR),
+      ("text_timeout", {"request_timeout_sec": "soon"}, _TIMEOUT_ERROR),
+      ("bool_timeout", {"request_timeout_sec": True}, _TIMEOUT_ERROR),
   )
-  def test_rejects_invalid_endpoints_and_timeout(self, extra_args, error):
+  def test_rejects_invalid_timeout(self, extra_args, error):
     with self.assertRaisesRegex(ValueError, error):
       http_server.HttpServerRunner.Config.from_unified_args(
           None, None, {"server_url": "http://host:1", **extra_args}
@@ -209,7 +127,6 @@ class HttpServerRunnerTest(absltest.TestCase):
         {
             "runner_type": base.RunnerType.HTTP_SERVER,
             "server_url": "http://host:1",
-            "endpoints": ("v1/chat/completions",),
             **extra_config,
         },
     )
@@ -222,14 +139,10 @@ class HttpServerRunnerTest(absltest.TestCase):
         http_server.HttpServerRunner,
     )
     self.assertEqual(runner.server_url, "http://host:1")
-    self.assertEqual(runner.endpoints, ("v1/chat/completions",))
     self.assertIsNone(runner.request_timeout_sec)
 
-  def test_exposes_endpoints_and_timeout(self):
-    runner = self._runner(
-        endpoints=("v1/chat/completions",), request_timeout_sec=1800.0
-    )
-    self.assertEqual(runner.endpoints, ("v1/chat/completions",))
+  def test_exposes_timeout(self):
+    runner = self._runner(request_timeout_sec=1800.0)
     self.assertEqual(runner.request_timeout_sec, 1800.0)
     self.assertEqual(runner.server_args, {})
 
@@ -253,7 +166,6 @@ class HttpServerRunnerTest(absltest.TestCase):
         for arg in http_server.HttpServerRunner.describe_runner_args()
     ]
     self.assertIn("server_url", names)
-    self.assertIn("endpoints", names)
     self.assertIn("request_timeout_sec", names)
     self.assertIn("server_args", names)
 

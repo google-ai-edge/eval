@@ -31,11 +31,13 @@ ai-edge-eval \
 
 import base64
 import io
-from typing import Iterator
+from typing import Any, Iterator
 import wave
 
 from model_eval import config
 from model_eval import custom_tasks
+
+_GENERATION_CONFIG = config.GenerationConfig(temperature=0.0, max_new_tokens=64)
 
 
 def _silence_wav(seconds: float = 1.0, sr: int = 16000) -> bytes:
@@ -50,8 +52,11 @@ def _silence_wav(seconds: float = 1.0, sr: int = 16000) -> bytes:
   return buf.getvalue()
 
 
-def asr_dataset() -> Iterator[custom_tasks.DatasetRow]:
-  """Yields dataset samples formatted with audio input messages and reference ground truth."""
+def asr_dataset(
+    task_args: custom_tasks.TaskArgs | None = None,
+) -> Iterator[custom_tasks.DatasetRow]:
+  """Yields dataset samples formatted with audio input requests and reference ground truth."""
+  model_name = (task_args or {}).get("model_name")
   for gold in (
       "speech recognition validation test",
       "artificial intelligence at the edge",
@@ -59,35 +64,43 @@ def asr_dataset() -> Iterator[custom_tasks.DatasetRow]:
   ):
     wav_bytes = _silence_wav()
     encoded_audio = base64.b64encode(wav_bytes).decode("utf-8")
+    messages = [{
+        "role": "user",
+        "content": [
+            {
+                "type": "input_audio",
+                "input_audio": {
+                    "data": encoded_audio,
+                    "format": "wav",
+                },
+            },
+            {
+                "type": "text",
+                "text": "Transcribe this audio verbatim.",
+            },
+        ],
+    }]
     yield {
-        "messages": [{
-            "role": "user",
-            "content": [
-                {
-                    "type": "input_audio",
-                    "input_audio": {
-                        "data": encoded_audio,
-                        "format": "wav",
-                    },
-                },
-                {
-                    "type": "text",
-                    "text": "Transcribe this audio verbatim.",
-                },
-            ],
-        }],
+        "requests": [
+            custom_tasks.chat_request(
+                messages, _GENERATION_CONFIG, model_name=model_name
+            )
+        ],
         "ground_truth": gold,
     }
 
 
 def asr_metrics(
-    preds: Iterator[str],
+    preds: Iterator[list[dict[str, Any] | None]],
     gts: Iterator[str],
     rows: Iterator[custom_tasks.DatasetRow],
 ) -> dict[str, float]:
   """Evaluates speech recognition output matching rates and response completeness."""
   del rows
-  preds_list = [p.strip().lower() for p in preds]
+  preds_list = [
+      (custom_tasks.chat_response_text(p[0]) or "").strip().lower() if p else ""
+      for p in preds
+  ]
   gts_list = [g.strip().lower() for g in gts]
 
   if not preds_list:
@@ -111,11 +124,9 @@ def asr_metrics(
 
 asr_task = custom_tasks.CustomTask(
     name="asr_eval",
+    endpoint="v1/chat/completions",
     dataset=asr_dataset,
     metric_fn=asr_metrics,
-    generation_config=config.GenerationConfig(
-        temperature=0.0, max_new_tokens=64
-    ),
 )
 
 custom_tasks.TaskRegistry.global_registry().register(asr_task)

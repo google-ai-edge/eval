@@ -17,7 +17,7 @@
 import csv
 import json
 import pathlib
-from typing import Callable, Iterator
+from typing import Callable, Generator, Iterator
 
 from model_eval.custom_tasks import base
 
@@ -65,28 +65,41 @@ def parse_samples(expr: str, n: int) -> list[int]:
 
 
 def load_dataset(
-    source: str | Callable[[], Iterator[base.DatasetRow]],
-) -> Iterator[base.DatasetRow]:
+    source: str | Callable[[base.TaskArgs], Iterator[base.DatasetRow]],
+    task_args: base.TaskArgs | None = None,
+) -> Generator[base.DatasetRow, None, None]:
   """Load DatasetRow from JSONL, CSV, or a generator Callable.
 
   Args:
-    source: Local string file path to a dataset or a generator yielding
-      DatasetRow.
+    source: Local string file path to a dataset or a generator
+      `source(task_args)` yielding DatasetRow.
+    task_args: Optional task-specific arguments forwarded to a callable
+      `source`.
 
   Yields:
     Parsed DatasetRow representing individual conversational turn sequences.
+
+  Raises:
+    ValueError: If `source` is a file and `task_args` is non-empty, or the
+      file type is unsupported.
   """
   # Forward directly if the source is already a callable generator.
   if callable(source):
-    yield from source()
+    yield from source(dict(task_args or {}))
   else:
+    if task_args:
+      raise ValueError(
+          f"Task args {sorted(task_args)} were given, but file datasets do"
+          f" not accept task args: {source}"
+      )
     path = pathlib.Path(source)
     # For JSONL files, each line is expected to be a JSON-encoded DatasetRow
     # object.
     if path.suffix == ".jsonl":
-      for line in path.read_text().splitlines():
-        if line.strip():
-          yield json.loads(line)
+      with path.open() as f:
+        for line in f:
+          if line.strip():
+            yield json.loads(line)
     # For CSV files, rows must contain a "data" column with JSON-encoded
     # DatasetRow object.
     elif path.suffix == ".csv":

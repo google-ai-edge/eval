@@ -485,16 +485,13 @@ class TestLiteRtLmRunner(unittest.TestCase):
     self.assertTrue(config_custom.thinking)
     self.assertEqual(config_custom.thinking_budget, 10)
 
-  def test_endpoints_and_request_timeout_sec(self):
+  def test_request_timeout_sec_and_server_args(self):
     runner = litert_lm.LiteRtLmRunner(
         litert_lm.LiteRtLmRunner.Config(
             runner_type="litert-lm",
             model_path="/foo",
             request_timeout_sec=300,
         )
-    )
-    self.assertEqual(
-        runner.endpoints, ("v1/chat/completions", "v1/chat/score")
     )
     self.assertEqual(runner.request_timeout_sec, 300.0)
     self.assertEqual(runner.server_url, "http://127.0.0.1:8080")
@@ -509,7 +506,6 @@ class TestLiteRtLmRunner(unittest.TestCase):
             always_return_not_greedy=False,
         )
     )
-    self.assertEqual(runner_no_scoring.endpoints, ("v1/chat/completions",))
     self.assertIsNone(runner_no_scoring.request_timeout_sec)
     self.assertTrue(runner_no_scoring.returns_greedy)
 

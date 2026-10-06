@@ -90,11 +90,6 @@ class AbstractRunner(abc.ABC):
     """Base URL, e.g. 'http://127.0.0.1:8080'."""
 
   @property
-  @abc.abstractmethod
-  def endpoints(self) -> tuple[str, ...]:
-    """Server paths (without leading/trailing slashes) served by this runner."""
-
-  @property
   def request_timeout_sec(self) -> float | None:
     """Per-request timeout in seconds; None means the framework's default."""
     return self._config.request_timeout_sec

@@ -24,7 +24,6 @@ import warnings
 from model_eval.api import constants as api_constants
 from model_eval.frameworks import base
 from model_eval.frameworks import registry
-from model_eval.frameworks import utils
 from model_eval.frameworks.lighteval import _chat_score_lighteval_model
 from model_eval.runners import base as runners_base
 from model_eval.utils import introspection
@@ -186,10 +185,9 @@ class LightEvalFramework(base.AbstractEvalFramework):
     targeting models accessible via a server endpoint.
 
     Args:
-        runner: The runner instance providing the server URL and endpoints.
-          The OpenAI `model` field is taken from
-          `runner.server_args["model_name"]` when set, otherwise
-          `DEFAULT_MODEL_NAME`.
+        runner: The runner instance providing the server URL. The OpenAI `model`
+          field is taken from `runner.server_args["model_name"]` when set,
+          otherwise `DEFAULT_MODEL_NAME`.
         tasks: A list of task names to evaluate.
         limit: Maximum samples per task.
         sample_range: Range of samples to evaluate.
@@ -198,13 +196,7 @@ class LightEvalFramework(base.AbstractEvalFramework):
 
     Returns:
         The EvalResults containing the evaluation results.
-
-    Raises:
-        ValueError: If the runner does not serve `v1/chat/completions`.
     """
-    utils.validate_endpoint(
-        runner, api_constants.CHAT_COMPLETIONS_ENDPOINT, "lighteval"
-    )
     # Resolve unified evaluation arguments into Lighteval-specific overrides.
     eval_params = self._from_unified_eval_args(
         limit, sample_range, batch_size, eval_args, limit_key="max_samples"

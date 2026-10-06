@@ -26,18 +26,39 @@ ai-edge-eval \
   --tasks my_iterator_qa \
   --output-dir /tmp/results
 ```
+
+Against an already running OpenAI-compatible server, name the model the server
+should use via `model_name` in `--runner-args`:
+```bash
+ai-edge-eval \
+  --runner http-server \
+  --runner-args "server_url=http://<address>:<port>,model_name=<model_name>" \
+  --framework custom \
+  --eval-args "samples={'my_iterator_qa':'1-3'}" \
+  --custom-tasks-file examples/model_eval/custom_task_example.py \
+  --tasks my_iterator_qa \
+  --output-dir /tmp/results
+```
 """
 
-from typing import Iterator
+from typing import Any, Iterator
 
 from model_eval import config
 from model_eval import custom_tasks
 
-OpenAIMessages = custom_tasks.OpenAIMessages
+_GENERATION_CONFIG = config.GenerationConfig(
+    temperature=0.0, max_new_tokens=32, stop_sequences=["\n\n"]
+)
 
 
-def my_custom_iterator() -> Iterator[custom_tasks.DatasetRow]:
+def my_custom_iterator(
+    task_args: custom_tasks.TaskArgs | None = None,
+) -> Iterator[custom_tasks.DatasetRow]:
   """Generator that yields DatasetRow (input + ground truth)."""
+  # `model_name` is provided by the runner's server_args (e.g. `--runner-args
+  # "...,model_name=..."` for http-server); unset for local runners, in which
+  # case `chat_request` falls back to the default.
+  model_name = (task_args or {}).get("model_name")
   dataset = [
       {"q": "What is the capital of France?", "a": "Paris"},
       {"q": "What is 2+2?", "a": "4"},
@@ -46,19 +67,30 @@ def my_custom_iterator() -> Iterator[custom_tasks.DatasetRow]:
   ]
   for row in dataset:
     yield {
-        "messages": [{"role": "user", "content": row["q"]}],
+        "requests": [
+            custom_tasks.chat_request(
+                [{"role": "user", "content": row["q"]}],
+                _GENERATION_CONFIG,
+                model_name=model_name,
+            )
+        ],
         "ground_truth": row["a"],
     }
 
 
 def text_metrics(
-    preds: list[str],
-    groundtruths: list[str],
-    rows: list[custom_tasks.DatasetRow],
+    preds: Iterator[list[dict[str, Any] | None]],
+    groundtruths: Iterator[str],
+    rows: Iterator[custom_tasks.DatasetRow],
 ):
   """Evaluates if the ground truth is contained within the model's output."""
   del rows  # Unused.
-  pred_texts = [p.lower() for p in preds]
+  if not preds:
+    return {"exact_match": 0.0, "reference_in_sample": 0.0}
+  pred_texts = [
+      (custom_tasks.chat_response_text(p[0]) or "").lower() if p else ""
+      for p in preds
+  ]
   groundtruth_texts = [g.lower() for g in groundtruths]
 
   # A match is recorded if the reference string 'gt_text' is found inside
@@ -84,11 +116,9 @@ def text_metrics(
 # Define the task using the iterator callable.
 qa_task = custom_tasks.CustomTask(
     name="my_iterator_qa",
+    endpoint="v1/chat/completions",
     dataset=my_custom_iterator,
     metric_fn=text_metrics,
-    generation_config=config.GenerationConfig(
-        temperature=0.0, max_new_tokens=32, stop_sequences=["\n\n"]
-    ),
 )
 
 # Register the task so the CLI can resolve it by name.

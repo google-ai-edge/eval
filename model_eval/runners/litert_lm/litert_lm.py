@@ -332,14 +332,5 @@ class LiteRtLmRunner(base.AbstractRunner):
     return f"http://{self._config.host}:{self._config.port}"
 
   @property
-  def endpoints(self) -> tuple[str, ...]:
-    if self._config.enable_scoring:
-      return (
-          api_constants.CHAT_COMPLETIONS_ENDPOINT,
-          api_constants.CHAT_SCORE_ENDPOINT,
-      )
-    return (api_constants.CHAT_COMPLETIONS_ENDPOINT,)
-
-  @property
   def returns_greedy(self) -> bool:
     return not self._config.always_return_not_greedy

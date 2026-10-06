@@ -22,7 +22,6 @@ import warnings
 from model_eval.api import constants
 from model_eval.frameworks import base
 from model_eval.frameworks import registry
-from model_eval.frameworks import utils
 from model_eval.runners import base as runners_base
 from model_eval.utils import introspection
 import lm_eval
@@ -314,12 +313,8 @@ class LmEvalFramework(base.AbstractEvalFramework):
         The results of the evaluation.
 
     Raises:
-        ValueError: If the runner does not serve `v1/chat/completions`, or
-          `apply_chat_template` is False.
+        ValueError: If `apply_chat_template` is False.
     """
-    utils.validate_endpoint(
-        runner, constants.CHAT_COMPLETIONS_ENDPOINT, "lm-eval"
-    )
     params = self._from_unified_eval_args(
         limit, sample_range, batch_size, eval_args, default_batch_size=1
     )

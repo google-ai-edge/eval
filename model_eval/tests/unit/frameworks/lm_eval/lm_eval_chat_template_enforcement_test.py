@@ -42,7 +42,6 @@ class LmEvalApplyChatTemplateEnforcementTest(absltest.TestCase):
     runner = mock.MagicMock()
     runner.server_url = "http://test"
     runner.server_args = {}
-    runner.endpoints = ("v1/chat/completions", "v1/chat/score")
     runner.request_timeout_sec = None
     runner.returns_greedy = True
 
@@ -69,7 +68,6 @@ class LmEvalApplyChatTemplateEnforcementTest(absltest.TestCase):
     runner = mock.MagicMock()
     runner.server_url = "http://test"
     runner.server_args = {}
-    runner.endpoints = ("v1/chat/completions", "v1/chat/score")
     runner.request_timeout_sec = None
     runner.returns_greedy = True
 

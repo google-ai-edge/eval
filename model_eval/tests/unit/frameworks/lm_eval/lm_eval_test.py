@@ -31,10 +31,6 @@ class TestLmEvalAdapter(unittest.TestCase):
     self.mock_runner = mock.MagicMock(spec=runners_base.AbstractRunner)
     self.mock_runner.server_url = "http://127.0.0.1:8080"
     self.mock_runner.server_args = {"model_name": "test_model"}
-    self.mock_runner.endpoints = (
-        constants.CHAT_COMPLETIONS_ENDPOINT,
-        constants.CHAT_SCORE_ENDPOINT,
-    )
     self.mock_runner.request_timeout_sec = None
     # pylint: disable=protected-access
     self.mock_runner._config = mock.MagicMock()
@@ -285,15 +281,6 @@ class TestLmEvalAdapter(unittest.TestCase):
       framework.evaluate(
           self.mock_runner, ["task1"], eval_args={"apply_chat_template": False}
       )
-
-  @mock.patch("model_eval.frameworks.lm_eval.lm_eval.lm_eval")
-  def test_evaluate_rejects_non_chat_runner_endpoint(self, mock_lm_eval):
-    self.mock_runner.endpoints = ("v1/embeddings",)
-    with self.assertRaisesRegex(
-        ValueError, "lm-eval requires endpoint 'v1/chat/completions'"
-    ):
-      lm_eval.LmEvalFramework().evaluate(self.mock_runner, ["task1"])
-    mock_lm_eval.simple_evaluate.assert_not_called()
 
   def test_evaluate_native_conflicts(self):
     framework = lm_eval.LmEvalFramework()

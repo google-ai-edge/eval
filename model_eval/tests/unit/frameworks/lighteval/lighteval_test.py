@@ -36,7 +36,6 @@ class TestLightEvalAdapter(absltest.TestCase):
     self.mock_runner = mock.MagicMock(spec=runner_base.AbstractRunner)
     self.mock_runner.server_url = "http://127.0.0.1:8080"
     self.mock_runner.server_args = {"model_name": "test_model"}
-    self.mock_runner.endpoints = ("v1/chat/completions", "v1/chat/score")
     self.mock_runner.request_timeout_sec = None
 
   @mock.patch.object(lighteval.lighteval_pipeline, "Pipeline")
@@ -178,15 +177,6 @@ class TestLightEvalAdapter(absltest.TestCase):
           batch_size=8,
           eval_args={"batch_size": 8},
       )
-
-  @mock.patch.object(lighteval.lighteval_pipeline, "Pipeline")
-  def test_evaluate_rejects_non_chat_runner_endpoint(self, mock_pipeline_cls):
-    self.mock_runner.endpoints = ("v1/embeddings",)
-    with self.assertRaisesRegex(
-        ValueError, "lighteval requires endpoint 'v1/chat/completions'"
-    ):
-      lighteval.LightEvalFramework().evaluate(self.mock_runner, ["task1"])
-    mock_pipeline_cls.assert_not_called()
 
   def test_describe_eval_args(self):
     framework = lighteval.LightEvalFramework()

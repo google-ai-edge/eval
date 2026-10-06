@@ -17,7 +17,6 @@
 import unittest
 from unittest import mock
 
-from model_eval.api import constants
 from model_eval.runners import base
 
 
@@ -36,10 +35,6 @@ class DummyRunner(base.AbstractRunner):
   @property
   def server_url(self) -> str:
     return "http://127.0.0.1:8080"
-
-  @property
-  def endpoints(self) -> tuple[str, ...]:
-    return (constants.CHAT_COMPLETIONS_ENDPOINT, constants.CHAT_SCORE_ENDPOINT)
 
   class Config(base.RunnerConfig):
 
@@ -105,10 +100,6 @@ class TestBaseRunner(unittest.TestCase):
   def test_reentrancy_guard(self):
     runner = DummyRunner()
     self.assertEqual(runner.server_url, "http://127.0.0.1:8080")
-    self.assertEqual(
-        runner.endpoints,
-        (constants.CHAT_COMPLETIONS_ENDPOINT, constants.CHAT_SCORE_ENDPOINT),
-    )
     self.assertIsNone(runner.request_timeout_sec)
     # Exiting before entering is a safe no-op.
     runner.__exit__()

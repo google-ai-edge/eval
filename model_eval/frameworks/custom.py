@@ -12,13 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Custom generation-only framework implementation."""
+"""Custom evaluation framework implementation."""
 
+from collections.abc import Iterable, Iterator
+import contextlib
+import itertools
 import math
+import sys
 from typing import Any
 
-from model_eval import config
-from model_eval.api import constants as api_constants
 from model_eval.custom_tasks import base as tasks_base
 from model_eval.custom_tasks import loaders
 from model_eval.custom_tasks import registry as tasks_registry
@@ -29,34 +31,46 @@ from model_eval.utils import introspection
 import httpx
 import tqdm
 
+# Per-request timeout used unless the runner sets `request_timeout_sec`.
+_DEFAULT_REQUEST_TIMEOUT_SEC = 120.0
+# Error recorded for requests after an earlier request of the same row failed.
+_SKIPPED_ERROR = "skipped: an earlier request failed"
+# Maximum number of response body characters kept in a recorded error.
+_MAX_ERROR_CHARS = 500
+
 
 def _apply_limit(
-    rows: list[dict[str, Any]], limit: int | float
-) -> list[dict[str, Any]]:
+    rows: Iterable[dict[str, Any]], limit: int | float
+) -> Iterator[dict[str, Any]]:
   """Slices a dataset using an absolute count limit or a percentage fraction.
 
+  An absolute limit is applied lazily, so rows past the limit are never
+  produced. A fractional limit needs the dataset size and loads all rows.
+
   Args:
-      rows: The input list of dataset rows to sample from.
+      rows: The input dataset rows to sample from.
       limit: Absolute integer count or a float representing a fraction.
 
   Returns:
-      The sliced list of rows.
+      An iterator over the sliced rows.
   """
-  n = (
-      int(math.ceil(len(rows) * limit))
-      if isinstance(limit, float) and limit < 1
-      else int(limit)
-  )
-  return rows[:n]
+  if isinstance(limit, float) and limit < 1:
+    rows_list = list(rows)
+    return iter(rows_list[: int(math.ceil(len(rows_list) * limit))])
+  return itertools.islice(rows, int(limit))
 
 
 def _apply_samples(
-    rows: list[dict[str, Any]], samples_val: Any, task_name: str
-) -> list[dict[str, Any]]:
+    rows: Iterable[dict[str, Any]], samples_val: Any, task_name: str
+) -> Iterator[dict[str, Any]]:
   """Filters a dataset by keeping precise row indices or resolving range slices.
 
+  Index lists, ranges ("start-end") and comma-separated indices are applied
+  lazily, stopping after the largest requested index. Slice expressions
+  ("start:stop:step") may be open-ended and load all rows.
+
   Args:
-      rows: The list of dataset rows to slice from.
+      rows: The dataset rows to slice from.
       samples_val: A dictionary mapping task names to indices/ranges, a list of
         indices, or a slice expression string.
       task_name: The specific name of the current task being evaluated.
@@ -65,9 +79,8 @@ def _apply_samples(
       ValueError: If samples_val is not a dict, str, or list.
 
   Returns:
-      The filtered dataset rows.
+      An iterator over the filtered dataset rows, in dataset order.
   """
-
   if not isinstance(samples_val, (dict, str, list)):
     raise ValueError(
         "Invalid type for samples: expected dict, str, or list, got"
@@ -78,20 +91,116 @@ def _apply_samples(
     if task_name in samples_val:
       task_expr = samples_val[task_name]
     else:
-      return rows
+      return iter(rows)
   else:
     task_expr = samples_val
 
   if isinstance(task_expr, list):
-    indices = [i for i in task_expr if i < len(rows)]
+    if any(i < 0 for i in task_expr):
+      # Negative indices count from the end, which needs all rows.
+      rows_list = list(rows)
+      return (
+          rows_list[i]
+          for i in task_expr
+          if -len(rows_list) <= i < len(rows_list)
+      )
+    indices = task_expr
+  elif ":" in str(task_expr):
+    rows_list = list(rows)
+    return (
+        rows_list[i]
+        for i in loaders.parse_samples(str(task_expr), len(rows_list))
+    )
   else:
-    indices = loaders.parse_samples(str(task_expr), len(rows))
-  return [rows[i] for i in indices]
+    indices = loaders.parse_samples(str(task_expr), sys.maxsize)
+  if not indices:
+    return iter(())
+  head = itertools.islice(rows, max(indices) + 1)
+  if indices != sorted(set(indices)):
+    # Unsorted or repeated indices keep the requested order, so the rows up
+    # to the largest index are buffered.
+    head_list = list(head)
+    return (head_list[i] for i in indices if i < len(head_list))
+  wanted = set(indices)
+  return (row for i, row in enumerate(head) if i in wanted)
+
+
+def _select_rows(
+    rows: Iterable[tasks_base.DatasetRow],
+    task_name: str,
+    limit: int | float | None,
+    sample_range: tuple[int, int] | None,
+    samples: Any,
+) -> Iterator[tasks_base.DatasetRow]:
+  """Validates slicing options and returns an iterator over selected rows."""
+  if limit is not None and sample_range is not None:
+    raise ValueError(
+        "Only one of 'limit' or 'sample_range' can be set, not both."
+    )
+  if sample_range is not None and samples is not None:
+    raise ValueError(
+        "Only one of 'sample_range' or 'samples' can be set, not both."
+    )
+  if limit is not None and samples is not None:
+    raise ValueError("Only one of 'limit' or 'samples' can be set, not both.")
+  if sample_range is not None:
+    samples = f"{sample_range[0]}-{sample_range[1]}"
+  if limit is not None:
+    return _apply_limit(rows, limit)  # pyrefly: ignore[bad-argument-type, bad-return]
+  if samples is not None:
+    return _apply_samples(rows, samples, task_name)  # pyrefly: ignore[bad-argument-type, bad-return]
+  return iter(rows)
+
+
+def _post_all(
+    http_client: httpx.Client, url: str, requests: tasks_base.Requests
+) -> tuple[list[Any], list[str | None]]:
+  """POSTs each JSON request body in `requests` to `url` in order.
+
+  Requests in a row often depend on each other (e.g. index, then query), so
+  once one fails the remaining requests in that row are skipped. Failures are
+  recorded rather than raised so a single bad row does not abort a long run.
+
+  Args:
+    http_client: HTTP client used to issue POST requests.
+    url: Full endpoint URL (`{server_url}/{endpoint}`).
+    requests: List of JSON request bodies for the row.
+
+  Returns:
+    A tuple `(responses, errors)` of equal length:
+    - `responses[i]` is the decoded JSON response on success, or None on
+      failure/skip.
+    - `errors[i]` is None on success, or a description of the failure/skip.
+  """
+  responses: list[Any] = []
+  errors: list[str | None] = []
+  failed = False
+  for body in requests:
+    if failed:
+      responses.append(None)
+      errors.append(_SKIPPED_ERROR)
+      continue
+    error: str | None = None
+    try:
+      resp = http_client.post(url, json=body)
+      if resp.is_error:
+        error = f"HTTP {resp.status_code}: {resp.text[:_MAX_ERROR_CHARS]}"
+      else:
+        responses.append(resp.json())
+        errors.append(None)
+    except (httpx.HTTPError, ValueError) as e:
+      # ValueError covers a response body that is not valid JSON.
+      error = f"{type(e).__name__}: {e}"
+    if error is not None:
+      failed = True
+      responses.append(None)
+      errors.append(error)
+  return responses, errors
 
 
 @registry.register_framework("custom")
 class CustomFramework(base.AbstractEvalFramework):
-  """Framework driving generation-only custom tasks against any server loop."""
+  """Framework driving custom tasks against a runner's HTTP endpoint."""
 
   def evaluate(
       self,
@@ -104,13 +213,19 @@ class CustomFramework(base.AbstractEvalFramework):
   ) -> base.EvalResults:
     """Evaluates the runner across the specified custom tasks.
 
+    Each row's `requests` are POSTed as JSON bodies in order to the task's
+    `endpoint` (joined to `runner.server_url`).
+
     Args:
       runner: The target runner implementation responsible for server inference.
       tasks: A list of unique task names to look up and evaluate.
       limit: Optional limit on number of samples per task to generate.
       sample_range: Optional range of samples to evaluate.
       batch_size: Evaluation batch size, used for conflict checks/parity.
-      eval_args: Additional evaluation configurations.
+      eval_args: Optional evaluation arguments. `samples` is consumed by the
+        framework; all remaining entries are forwarded as `task_args` to each
+        task's `dataset`, merged on top of `runner.server_args` (eval args take
+        precedence on key collisions).
 
     Raises:
       ValueError: If conflicting limit/sample options are provided.
@@ -118,28 +233,19 @@ class CustomFramework(base.AbstractEvalFramework):
     Returns:
       An EvalResults instance containing all aggregated task metrics and
       outputs. The per-sample outputs contain the keys 'input', 'prediction',
-      and 'ground_truth'.
+      'errors', and 'ground_truth'.
     """
     eval_params = self._from_unified_eval_args(
         limit, sample_range, batch_size, eval_args
     )
-
     samples = eval_params.eval_args.pop("samples", None)
-    if eval_params.limit is not None and eval_params.sample_range is not None:
-      raise ValueError(
-          "Only one of 'limit' or 'sample_range' can be set, not both."
-      )
-    if eval_params.sample_range is not None and samples is not None:
-      raise ValueError(
-          "Only one of 'sample_range' or 'samples' can be set, not both."
-      )
-    if eval_params.limit is not None and samples is not None:
-      raise ValueError("Only one of 'limit' or 'samples' can be set, not both.")
+    task_args = eval_params.eval_args
 
     reg = tasks_registry.TaskRegistry.global_registry()
     all_results = {}
     all_samples = {}
-    with httpx.Client(timeout=120.0) as http_client:
+    timeout_sec = runner.request_timeout_sec or _DEFAULT_REQUEST_TIMEOUT_SEC
+    with httpx.Client(timeout=timeout_sec) as http_client:
       for name in tasks:
         task = reg.get_task(name)
         all_results[name], all_samples[name] = self._run_task(
@@ -149,6 +255,7 @@ class CustomFramework(base.AbstractEvalFramework):
             limit=eval_params.limit,
             sample_range=eval_params.sample_range,
             samples=samples,
+            task_args=task_args,
         )
     return base.EvalResults(
         framework_type="custom",
@@ -166,122 +273,63 @@ class CustomFramework(base.AbstractEvalFramework):
       limit: int | float | None = None,
       sample_range: tuple[int, int] | None = None,
       samples: Any = None,
+      task_args: tasks_base.TaskArgs | None = None,
   ) -> tuple[dict[str, float], list[dict[str, Any]]]:
-    """Executes a single custom evaluation task.
-
-    Loads the dataset, applies any slicing bounds, drives generation for each
-    row, calculates user-defined metrics, and maps inputs to predictions.
+    """Executes a single custom evaluation task against `task.endpoint`.
 
     Args:
-      runner: The target runner supporting HTTP completions inference.
-      task: The CustomTask instance defining the dataset and metric hooks.
+      runner: The target runner exposing `server_url` and `server_args`.
+      task: The CustomTask instance defining the endpoint, dataset, and metrics.
       http_client: Explicit httpx client instance to use for API calls.
       limit: Optional limit on number of samples per task to generate.
       sample_range: Optional range of samples to evaluate.
       samples: Optional explicit sample indices or dictionary map.
+      task_args: Task-specific arguments, merged on top of `runner.server_args`
+        and forwarded to `task.dataset`.
 
     Raises:
       ValueError: If conflicting limit/sample options are provided.
 
     Returns:
-      A tuple containing the dict of aggregated metrics and a list of per-sample
-      execution dictionaries. Each dictionary contains the keys: 'input' (the
-      input messages), 'prediction' (the generated text), and 'ground_truth'
-      (the expected output).
+      A tuple `(metrics, sample_outputs)` where each entry in `sample_outputs`
+      contains `'input'`, `'prediction'`, `'errors'`, and `'ground_truth'`.
     """
-    if limit is not None and sample_range is not None:
-      raise ValueError(
-          "Only one of 'limit' or 'sample_range' can be set, not both."
-      )
-    if sample_range is not None and samples is not None:
-      raise ValueError(
-          "Only one of 'sample_range' or 'samples' can be set, not both."
-      )
-    if limit is not None and samples is not None:
-      raise ValueError("Only one of 'limit' or 'samples' can be set, not both.")
+    url = f"{runner.server_url}/{task.endpoint}"
+    evaluated: list[
+        tuple[tasks_base.DatasetRow, list[Any], list[str | None]]
+    ] = []
 
-    if sample_range is not None:
-      samples = f"{sample_range[0]}-{sample_range[1]}"
+    # Callable datasets receive the runner's server args (e.g. `model_name`)
+    # beneath the task args from --eval-args; eval args win on collision. File
+    # datasets cannot consume args, so only eval args are passed (and rejected
+    # by the loader if non-empty).
+    dataset_args = dict(task_args or {})
+    if callable(task.dataset):
+      dataset_args = {**runner.server_args, **dataset_args}
 
-    # Load entire dataset lazily into an initial list buffer.
-    rows: list[tasks_base.DatasetRow] = list(loaders.load_dataset(task.dataset))
+    with contextlib.closing(
+        loaders.load_dataset(task.dataset, dataset_args)
+    ) as dataset:
+      rows = _select_rows(dataset, task.name, limit, sample_range, samples)
+      for row in tqdm.tqdm(rows, desc=f"Evaluating {task.name}"):
+        responses, errors = _post_all(http_client, url, row["requests"])
+        evaluated.append((row, responses, errors))
 
-    if limit:
-      rows = _apply_limit(rows, limit)  # pyrefly: ignore[bad-argument-type, bad-assignment]
-
-    # Apply explicit 'samples' string expression (e.g.,
-    # {"task_name_1": "0-10", "task_name_2": "1,3,5"}) filtering.
-    if samples:
-      rows = _apply_samples(rows, samples, task.name)  # pyrefly: ignore[bad-argument-type, bad-assignment]
-
-    predictions = []
-    groundtruths = []
-    # sample_outputs: List of dicts mapping user prompt, generated text, and
-    # target ground truth for per-sample debugging.
-    sample_outputs: list[dict[str, Any]] = []
-
-    # Iterate and generate model completions row by row.
-    for row in tqdm.tqdm(rows, desc=f"Evaluating {task.name}"):
-      input_msgs = row["messages"]
-      gt = row["ground_truth"]
-
-      # Generate the prediction.
-      pred = self._generate(
-          runner, input_msgs, task.generation_config, http_client
-      )
-
-      # Populate the lists required for metric calculation and output logging.
-      predictions.append(pred)
-      groundtruths.append(gt)
-      sample_outputs.append({
-          "input": input_msgs,
-          "prediction": pred,
-          "ground_truth": gt,
-      })
-
-    result = task.metric_fn(iter(predictions), iter(groundtruths), iter(rows))
+    result = task.metric_fn(
+        (pred for _, pred, _ in evaluated),
+        (row["ground_truth"] for row, _, _ in evaluated),
+        (row for row, _, _ in evaluated),
+    )
+    sample_outputs = [
+        {
+            "input": row["requests"],
+            "prediction": pred,
+            "errors": errors,
+            "ground_truth": row["ground_truth"],
+        }
+        for row, pred, errors in evaluated
+    ]
     return result, sample_outputs
-
-  def _generate(
-      self,
-      runner: runners_base.AbstractRunner,
-      input_messages: tasks_base.OpenAIMessages,
-      generation_config: config.GenerationConfig,
-      http_client: httpx.Client,
-  ) -> tasks_base.PredictionType:
-    """Generates a model prediction for a single input row.
-
-    Submits a standard chat completion payload and extracts the resulting turn.
-
-    Args:
-      runner: The runner instance exposing the base endpoint.
-      input_messages: The input messages context for generation.
-      generation_config: The configuration parameters for generation.
-      http_client: Explicit httpx client instance to use for API calls.
-
-    Returns:
-      The generated prediction.
-    """
-    # Transmit the isolated chat messages context to the OpenAI-compatible
-    # endpoint. The `model` field comes from the runner's server args (e.g.
-    # `model_name` for servers hosting several models), else the default.
-    model_name = (
-        runner.server_args.get("model_name") or api_constants.DEFAULT_MODEL_NAME
-    )
-    resp = http_client.post(
-        f"{runner.server_url}/{api_constants.CHAT_COMPLETIONS_ENDPOINT}",
-        json={
-            "model": model_name,
-            "messages": input_messages,
-            "temperature": generation_config.temperature,
-            "max_tokens": generation_config.max_new_tokens,
-            "stop": generation_config.stop_sequences or None,
-        },
-    )
-    resp.raise_for_status()
-    # We currently request only a single completion per generation call,
-    # so we can safely extract the text from the first and only choice.
-    return resp.json()["choices"][0]["message"]["content"]
 
   @classmethod
   def supported_task_ids(cls) -> list[str]:
