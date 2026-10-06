@@ -128,6 +128,89 @@ class TestLmEvalAdapter(unittest.TestCase):
   @mock.patch(
       "model_eval.frameworks.lm_eval.lm_eval.lm_eval_tasks"
   )
+  def test_evaluate_passes_metadata_to_task_manager(
+      self, mock_tasks, mock_lm_eval
+  ):
+    mock_lm_eval.simple_evaluate.return_value = {}
+    # `simple_evaluate` ignores its `metadata` argument when it is given a
+    # `task_manager`, so BABILong would never see `max_seq_lengths` and would
+    # load its `0k` samples.
+    lm_eval.LmEvalFramework().evaluate(
+        self.mock_runner,
+        ["babilong_longctx"],
+        eval_args={
+            "metadata": {
+                "max_seq_lengths": "4k",
+                "model": "overridden",
+            }
+        },
+    )
+
+    # As in lm-eval's own CLI, the task metadata is the model args updated with
+    # `metadata`.
+    mock_tasks.TaskManager.assert_called_once_with(
+        metadata={
+            "base_url": "http://127.0.0.1:8080",
+            "model": "overridden",
+            "max_seq_lengths": "4k",
+        }
+    )
+    kwargs = mock_lm_eval.simple_evaluate.call_args.kwargs
+    self.assertIs(kwargs["task_manager"], mock_tasks.TaskManager.return_value)
+    self.assertEqual(
+        kwargs["model_args"], "base_url=http://127.0.0.1:8080,model=test_model"
+    )
+    self.assertNotIn("metadata", kwargs)
+
+  @mock.patch(
+      "model_eval.frameworks.lm_eval.lm_eval.lm_eval"
+  )
+  @mock.patch(
+      "model_eval.frameworks.lm_eval.lm_eval.lm_eval_tasks"
+  )
+  def test_evaluate_without_metadata_uses_model_args_as_task_metadata(
+      self, mock_tasks, mock_lm_eval
+  ):
+    mock_lm_eval.simple_evaluate.return_value = {}
+    lm_eval.LmEvalFramework().evaluate(self.mock_runner, ["task1"])
+    mock_tasks.TaskManager.assert_called_once_with(
+        metadata={"base_url": "http://127.0.0.1:8080", "model": "test_model"}
+    )
+
+  @mock.patch(
+      "model_eval.frameworks.lm_eval.lm_eval.lm_eval"
+  )
+  @mock.patch(
+      "model_eval.frameworks.lm_eval.lm_eval.lm_eval_tasks"
+  )
+  def test_evaluate_native_passes_metadata_to_task_manager(
+      self, mock_tasks, mock_lm_eval
+  ):
+    mock_lm_eval.simple_evaluate.return_value = {}
+    config = base.NativeModelConfig(
+        model="hf", model_args={"pretrained": "gpt2"}, device="cpu"
+    )
+    # A "key=value" string is accepted too, like lm-eval's --metadata flag.
+    lm_eval.LmEvalFramework().evaluate_native(
+        config,
+        ["babilong_longctx"],
+        eval_args={"metadata": "max_seq_lengths=4k"},
+    )
+
+    mock_tasks.TaskManager.assert_called_once_with(
+        metadata={"pretrained": "gpt2", "max_seq_lengths": "4k"}
+    )
+    kwargs = mock_lm_eval.simple_evaluate.call_args.kwargs
+    self.assertIs(kwargs["task_manager"], mock_tasks.TaskManager.return_value)
+    self.assertEqual(kwargs["device"], "cpu")
+    self.assertNotIn("metadata", kwargs)
+
+  @mock.patch(
+      "model_eval.frameworks.lm_eval.lm_eval.lm_eval"
+  )
+  @mock.patch(
+      "model_eval.frameworks.lm_eval.lm_eval.lm_eval_tasks"
+  )
   def test_evaluate_native(self, mock_tasks, mock_lm_eval):
 
     mock_lm_eval.simple_evaluate.return_value = {

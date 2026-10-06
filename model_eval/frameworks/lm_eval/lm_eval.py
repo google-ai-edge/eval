@@ -27,6 +27,7 @@ from model_eval.runners import base as runners_base
 from model_eval.utils import introspection
 import lm_eval
 from lm_eval import tasks as lm_eval_tasks
+from lm_eval import utils as lm_eval_utils
 
 from model_eval.frameworks import _local_chat_score_model  # pylint: disable=unused-import,g-bad-import-order
 
@@ -217,6 +218,38 @@ def _model_args(runner: runners_base.AbstractRunner) -> str:
   return args
 
 
+def _task_manager(
+    model_args: str | dict[str, Any] | None,
+    metadata: str | dict[str, Any] | None,
+) -> lm_eval_tasks.TaskManager:
+  """Builds a TaskManager that attaches the task metadata to every task.
+
+  `lm_eval.simple_evaluate` only merges `model_args` and its `metadata` argument
+  into the task metadata when it builds the TaskManager itself. When it is
+  given a `task_manager`, as here, it ignores `metadata`. Some tasks read their
+  settings from the task metadata: for example, BABILong loads the samples of
+  the context length in `max_seq_lengths`, and falls back to its `0k` samples
+  without it. Like lm-eval's own CLI, `metadata` takes precedence over
+  `model_args`.
+
+  Args:
+      model_args: The model arguments passed to `simple_evaluate`, as a
+        "key=value,..." string or a dict.
+      metadata: The `metadata` evaluation argument, as a dict or a
+        "key=value,..." string, if any.
+
+  Returns:
+      The TaskManager to pass to `simple_evaluate`.
+  """
+  if isinstance(model_args, str):
+    model_args = lm_eval_utils.simple_parse_args_string(model_args)
+  if isinstance(metadata, str):
+    metadata = lm_eval_utils.simple_parse_args_string(metadata)
+  return lm_eval_tasks.TaskManager(
+      metadata=dict(model_args or {}) | dict(metadata or {})
+  )
+
+
 def _parse_lm_eval_results(raw: dict[str, Any] | None) -> base.EvalResults:
   """Extracts the results from task evaluations."""
   if not raw:
@@ -301,7 +334,10 @@ class LmEvalFramework(base.AbstractEvalFramework):
           "apply_chat_template must be True for "
           f"{constants.LOCAL_CHAT_SCORE_MODEL_NAME} based evaluation."
       )
-    task_manager = lm_eval_tasks.TaskManager()
+    model_args = _model_args(runner)
+    task_manager = _task_manager(
+        model_args, params.eval_args.pop("metadata", None)
+    )
 
     # Emits a warning for tasks that depend on is_greedy if the underlying
     # server is configured with the always_return_not_greedy=True optimization.
@@ -313,7 +349,7 @@ class LmEvalFramework(base.AbstractEvalFramework):
       with runner:
         raw_results = lm_eval.simple_evaluate(
             model=constants.LOCAL_CHAT_SCORE_MODEL_NAME,
-            model_args=_model_args(runner),
+            model_args=model_args,
             tasks=tasks,
             num_fewshot=num_fewshot,
             batch_size=params.batch_size,
@@ -358,8 +394,6 @@ class LmEvalFramework(base.AbstractEvalFramework):
     # inconsistencies between native and custom runners.
     apply_chat_template = eval_params.eval_args.pop("apply_chat_template", True)
 
-    task_manager = lm_eval_tasks.TaskManager()
-
     # Dynamically determine the model path argument key for native runners.
     model_path_key = self._get_model_path_key(model_config.model)
     # By default, device_key is always set to 'device' for native runners.
@@ -373,6 +407,10 @@ class LmEvalFramework(base.AbstractEvalFramework):
     # Pop device key from runner_args to avoid conflicts with the device flag in
     # lm_eval.simple_evaluate().
     runner_args.model_args.pop(device_key, None)
+
+    task_manager = _task_manager(
+        runner_args.model_args, eval_params.eval_args.pop("metadata", None)
+    )
 
     configure_lm_eval_slicing(eval_params.sample_range)
     try:
