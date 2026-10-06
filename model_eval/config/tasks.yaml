@@ -18,6 +18,8 @@ lm_eval:
   - bbh
   - ifeval
   - mmmu_val  # multimodal generation
+  - babilong  # long-context QA; context length via metadata (see README)
+  - babilong_longctx  # qa1-qa5, the BABILong tasks with 1k-128k contexts
   # Scoring tasks:
   - mmlu
   - hellaswag
