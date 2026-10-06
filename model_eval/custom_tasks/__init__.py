@@ -18,6 +18,7 @@ from model_eval.custom_tasks import base
 from model_eval.custom_tasks import registry
 
 Requests = base.Requests
+RequestTelemetry = base.RequestTelemetry
 TaskArgs = base.TaskArgs
 CustomTask = base.CustomTask
 DatasetRow = base.DatasetRow
@@ -27,6 +28,7 @@ TaskRegistry = registry.TaskRegistry
 
 __all__ = [
     "Requests",
+    "RequestTelemetry",
     "TaskArgs",
     "CustomTask",
     "DatasetRow",

@@ -19,7 +19,8 @@ import contextlib
 import itertools
 import math
 import sys
-from typing import Any
+import time
+from typing import Any, cast
 
 from model_eval.custom_tasks import base as tasks_base
 from model_eval.custom_tasks import loaders
@@ -154,7 +155,9 @@ def _select_rows(
 
 def _post_all(
     http_client: httpx.Client, url: str, requests: tasks_base.Requests
-) -> tuple[list[Any], list[str | None]]:
+) -> tuple[
+    list[Any], list[str | None], list[tasks_base.RequestTelemetry | None]
+]:
   """POSTs each JSON request body in `requests` to `url` in order.
 
   Requests in a row often depend on each other (e.g. index, then query), so
@@ -167,20 +170,26 @@ def _post_all(
     requests: List of JSON request bodies for the row.
 
   Returns:
-    A tuple `(responses, errors)` of equal length:
+    A tuple `(responses, errors, telemetry)` of equal length:
     - `responses[i]` is the decoded JSON response on success, or None on
       failure/skip.
     - `errors[i]` is None on success, or a description of the failure/skip.
+    - `telemetry[i]` is a `RequestTelemetry` dict (`{"latency_sec": ...}` with
+      the client-observed wall-clock seconds spent on the request, including
+      transport), or None if it was skipped.
   """
   responses: list[Any] = []
   errors: list[str | None] = []
+  telemetry: list[tasks_base.RequestTelemetry | None] = []
   failed = False
   for body in requests:
     if failed:
       responses.append(None)
       errors.append(_SKIPPED_ERROR)
+      telemetry.append(None)
       continue
     error: str | None = None
+    start = time.perf_counter()
     try:
       resp = http_client.post(url, json=body)
       if resp.is_error:
@@ -191,11 +200,36 @@ def _post_all(
     except (httpx.HTTPError, ValueError) as e:
       # ValueError covers a response body that is not valid JSON.
       error = f"{type(e).__name__}: {e}"
+    telemetry.append({"latency_sec": time.perf_counter() - start})
     if error is not None:
       failed = True
       responses.append(None)
       errors.append(error)
-  return responses, errors
+  return responses, errors, telemetry
+
+
+def _with_telemetry(
+    row: tasks_base.DatasetRow,
+    telemetry: list[tasks_base.RequestTelemetry | None],
+) -> tasks_base.DatasetRow:
+  """Returns a shallow copy of `row` with `metadata["telemetry"]` set.
+
+  Copying keeps the dataset's own row objects untouched while exposing the
+  per-request telemetry to `metric_fn` and `sample_input_fn`.
+
+  Args:
+    row: The dataset row that was just evaluated.
+    telemetry: Per-request telemetry dicts as returned by `_post_all`.
+
+  Returns:
+    A shallow copy of `row` with `metadata["telemetry"]` set to `telemetry`.
+  """
+  copied: dict[str, Any] = dict(row)
+  copied["metadata"] = {
+      **(row.get("metadata") or {}),
+      "telemetry": telemetry,
+  }
+  return cast(tasks_base.DatasetRow, copied)
 
 
 @registry.register_framework("custom")
@@ -224,8 +258,8 @@ class CustomFramework(base.AbstractEvalFramework):
       batch_size: Evaluation batch size, used for conflict checks/parity.
       eval_args: Optional evaluation arguments. `samples` is consumed by the
         framework; all remaining entries are forwarded as `task_args` to each
-        task's `dataset`, merged on top of `runner.server_args` (eval args take
-        precedence on key collisions).
+        task's `dataset` and `metric_fn`, merged on top of `runner.server_args`
+        (eval args take precedence on key collisions).
 
     Raises:
       ValueError: If conflicting limit/sample options are provided.
@@ -233,7 +267,8 @@ class CustomFramework(base.AbstractEvalFramework):
     Returns:
       An EvalResults instance containing all aggregated task metrics and
       outputs. The per-sample outputs contain the keys 'input', 'prediction',
-      'errors', and 'ground_truth'.
+      'errors', 'telemetry', and 'ground_truth'; 'input' is
+      `task.sample_input_fn(row)` when set, else the row's `requests`.
     """
     eval_params = self._from_unified_eval_args(
         limit, sample_range, batch_size, eval_args
@@ -285,49 +320,62 @@ class CustomFramework(base.AbstractEvalFramework):
       sample_range: Optional range of samples to evaluate.
       samples: Optional explicit sample indices or dictionary map.
       task_args: Task-specific arguments, merged on top of `runner.server_args`
-        and forwarded to `task.dataset`.
+        and forwarded to `task.dataset` and `task.metric_fn`.
 
     Raises:
       ValueError: If conflicting limit/sample options are provided.
 
     Returns:
       A tuple `(metrics, sample_outputs)` where each entry in `sample_outputs`
-      contains `'input'`, `'prediction'`, `'errors'`, and `'ground_truth'`.
+      contains `'input'`, `'prediction'`, `'errors'`, `'telemetry'`, and
+      `'ground_truth'`.
     """
     url = f"{runner.server_url}/{task.endpoint}"
     evaluated: list[
-        tuple[tasks_base.DatasetRow, list[Any], list[str | None]]
+        tuple[tasks_base.DatasetRow, list[Any], list[str | None], Any]
     ] = []
 
-    # Callable datasets receive the runner's server args (e.g. `model_name`)
-    # beneath the task args from --eval-args; eval args win on collision. File
-    # datasets cannot consume args, so only eval args are passed (and rejected
-    # by the loader if non-empty).
-    dataset_args = dict(task_args or {})
-    if callable(task.dataset):
-      dataset_args = {**runner.server_args, **dataset_args}
+    # Callable datasets and `metric_fn` receive the runner's server args (e.g.
+    # `model_name`) beneath the task args from --eval-args; eval args win on
+    # collision. File datasets cannot consume args, so only eval args are
+    # passed to the loader (and rejected if non-empty).
+    merged_task_args: tasks_base.TaskArgs = {
+        **runner.server_args,
+        **(task_args or {}),
+    }
+    dataset_args = (
+        merged_task_args if callable(task.dataset) else dict(task_args or {})
+    )
 
     with contextlib.closing(
         loaders.load_dataset(task.dataset, dataset_args)
     ) as dataset:
       rows = _select_rows(dataset, task.name, limit, sample_range, samples)
       for row in tqdm.tqdm(rows, desc=f"Evaluating {task.name}"):
-        responses, errors = _post_all(http_client, url, row["requests"])
-        evaluated.append((row, responses, errors))
+        responses, errors, telemetry = _post_all(
+            http_client, url, row["requests"]
+        )
+        row = _with_telemetry(row, telemetry)
+        sample_input = (
+            task.sample_input_fn(row)
+            if task.sample_input_fn is not None
+            else row["requests"]
+        )
+        evaluated.append((row, responses, errors, sample_input))
 
-    result = task.metric_fn(
-        (pred for _, pred, _ in evaluated),
-        (row["ground_truth"] for row, _, _ in evaluated),
-        (row for row, _, _ in evaluated),
-    )
+    preds = (pred for _, pred, _, _ in evaluated)
+    gts = (row["ground_truth"] for row, _, _, _ in evaluated)
+    evaluated_rows = (row for row, _, _, _ in evaluated)
+    result = task.metric_fn(preds, gts, evaluated_rows, merged_task_args)
     sample_outputs = [
         {
-            "input": row["requests"],
+            "input": sample_input,
             "prediction": pred,
             "errors": errors,
+            "telemetry": row["metadata"]["telemetry"],
             "ground_truth": row["ground_truth"],
         }
-        for row, pred, errors in evaluated
+        for row, pred, errors, sample_input in evaluated
     ]
     return result, sample_outputs
 

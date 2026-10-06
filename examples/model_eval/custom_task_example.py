@@ -82,9 +82,10 @@ def text_metrics(
     preds: Iterator[list[dict[str, Any] | None]],
     groundtruths: Iterator[str],
     rows: Iterator[custom_tasks.DatasetRow],
+    task_args: custom_tasks.TaskArgs,
 ):
   """Evaluates if the ground truth is contained within the model's output."""
-  del rows  # Unused.
+  del rows, task_args  # Unused.
   if not preds:
     return {"exact_match": 0.0, "reference_in_sample": 0.0}
   pred_texts = [

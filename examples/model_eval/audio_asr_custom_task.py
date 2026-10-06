@@ -14,7 +14,20 @@
 
 r"""Example script defining an Automatic Speech Recognition (ASR) custom task.
 
-Example execution command:
+Example execution command against an already running OpenAI-compatible server:
+```bash
+ai-edge-eval \
+  --framework custom \
+  --runner http-server \
+  --runner-args server_url=http://localhost:8080,model_name=gemma-4-E2B-it \
+  --custom-tasks-file examples/model_eval/audio_asr_custom_task.py \
+  --tasks asr_eval \
+  --limit 3 \
+  --batch-size 1 \
+  --output-dir /tmp/audio_results
+```
+
+Or with the in-process LiteRT-LM runner:
 ```bash
 ai-edge-eval \
   --framework custom \
@@ -27,6 +40,10 @@ ai-edge-eval \
   --batch-size 1 \
   --output-dir /tmp/audio_results
 ```
+
+Because each request embeds the audio as base64, the task sets
+`sample_input_fn` so the per-sample outputs record a small summary of the
+input instead of the full request payloads.
 """
 
 import base64
@@ -38,9 +55,11 @@ from model_eval import config
 from model_eval import custom_tasks
 
 _GENERATION_CONFIG = config.GenerationConfig(temperature=0.0, max_new_tokens=64)
+_PROMPT = "Transcribe this audio verbatim."
+_AUDIO_SECONDS = 1.0
 
 
-def _silence_wav(seconds: float = 1.0, sr: int = 16000) -> bytes:
+def _silence_wav(seconds: float = _AUDIO_SECONDS, sr: int = 16000) -> bytes:
   """Generates dummy synthetic silence WAV audio bytes."""
   num_samples = int(seconds * sr)
   buf = io.BytesIO()
@@ -57,11 +76,11 @@ def asr_dataset(
 ) -> Iterator[custom_tasks.DatasetRow]:
   """Yields dataset samples formatted with audio input requests and reference ground truth."""
   model_name = (task_args or {}).get("model_name")
-  for gold in (
+  for index, gold in enumerate((
       "speech recognition validation test",
       "artificial intelligence at the edge",
       "verbatim audio transcription sample",
-  ):
+  )):
     wav_bytes = _silence_wav()
     encoded_audio = base64.b64encode(wav_bytes).decode("utf-8")
     messages = [{
@@ -76,7 +95,7 @@ def asr_dataset(
             },
             {
                 "type": "text",
-                "text": "Transcribe this audio verbatim.",
+                "text": _PROMPT,
             },
         ],
     }]
@@ -87,27 +106,43 @@ def asr_dataset(
             )
         ],
         "ground_truth": gold,
+        "metadata": {"id": f"utt-{index}", "audio_length_s": _AUDIO_SECONDS},
     }
+
+
+def asr_sample_input(row: custom_tasks.DatasetRow) -> dict[str, Any]:
+  """Summarises a row's input without the base64 audio payload."""
+  return {"prompt": _PROMPT, **row.get("metadata", {})}
 
 
 def asr_metrics(
     preds: Iterator[list[dict[str, Any] | None]],
     gts: Iterator[str],
     rows: Iterator[custom_tasks.DatasetRow],
+    task_args: custom_tasks.TaskArgs,
 ) -> dict[str, float]:
   """Evaluates speech recognition output matching rates and response completeness."""
-  del rows
+  del task_args  # Unused.
   preds_list = [
       (custom_tasks.chat_response_text(p[0]) or "").strip().lower() if p else ""
       for p in preds
   ]
   gts_list = [g.strip().lower() for g in gts]
+  # The framework records per-request telemetry (including wall-clock latency)
+  # in the row's metadata, so a task can report timing alongside quality
+  # metrics.
+  latencies = [
+      row["metadata"]["telemetry"][0]["latency_sec"]
+      for row in rows
+      if row["metadata"]["telemetry"][0] is not None
+  ]
 
   if not preds_list:
     return {
         "non_empty_rate": 0.0,
         "exact_match": 0.0,
         "substring_match": 0.0,
+        "mean_latency_sec": 0.0,
     }
 
   non_empty_count = sum(1 for p in preds_list if bool(p))
@@ -119,6 +154,7 @@ def asr_metrics(
       "non_empty_rate": non_empty_count / total,
       "exact_match": exact_match_count / total,
       "substring_match": substring_match_count / total,
+      "mean_latency_sec": sum(latencies) / len(latencies) if latencies else 0.0,
   }
 
 
@@ -127,6 +163,7 @@ asr_task = custom_tasks.CustomTask(
     endpoint="v1/chat/completions",
     dataset=asr_dataset,
     metric_fn=asr_metrics,
+    sample_input_fn=asr_sample_input,
 )
 
 custom_tasks.TaskRegistry.global_registry().register(asr_task)
