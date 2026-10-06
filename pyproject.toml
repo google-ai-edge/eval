@@ -32,7 +32,7 @@ dependencies = [
     "huggingface_hub",
     "immutabledict",
     "langdetect",
-    "litert-lm>=0.14.0",
+    "litert-lm>=0.18.0",
     "lm_eval>=0.4",
     "pydantic>=2.0",
     "pyyaml>=6.0",
@@ -64,6 +64,8 @@ dev = [
 lighteval = [
     "lighteval[litellm]>=0.13",
     "litellm[caching]>=1.86.1",
+    # lighteval 0.13 hashes str with xxhash; xxhash 4.0 requires bytes.
+    "xxhash<4",
 ]
 
 # Meta-group for a complete local evaluation environment
