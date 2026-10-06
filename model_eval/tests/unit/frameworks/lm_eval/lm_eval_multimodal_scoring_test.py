@@ -56,6 +56,7 @@ class LmEvalMultimodalScoringRejectionTest(absltest.TestCase):
     )
     model._scoring_url = "http://test/v1/chat/score"
     model.model = "test"
+    model.timeout = 300  # TemplateAPI default; __init__ is bypassed.
 
     with self.assertRaisesRegex(
         ValueError, r"[Mm]ultimodal scoring is not supported"
@@ -69,6 +70,7 @@ class LmEvalMultimodalScoringRejectionTest(absltest.TestCase):
         _local_chat_score_model.LocalChatScoreModel)
     model._scoring_url = "http://test/v1/chat/score"
     model.model = "test"
+    model.timeout = 300  # TemplateAPI default; __init__ is bypassed.
 
     class _TextOnlyReq:
 

@@ -20,6 +20,7 @@ from unittest import mock
 from model_eval.api import constants
 from model_eval.frameworks import base
 from model_eval.frameworks import lm_eval
+from model_eval.frameworks.lm_eval import lm_eval as lm_eval_module
 from model_eval.runners import base as runners_base
 
 
@@ -29,11 +30,38 @@ class TestLmEvalAdapter(unittest.TestCase):
     super().setUp()
     self.mock_runner = mock.MagicMock(spec=runners_base.AbstractRunner)
     self.mock_runner.server_url = "http://127.0.0.1:8080"
-    self.mock_runner.model_name = "test-model"
+    self.mock_runner.server_args = {"model_name": "test_model"}
+    self.mock_runner.endpoints = (
+        constants.CHAT_COMPLETIONS_ENDPOINT,
+        constants.CHAT_SCORE_ENDPOINT,
+    )
+    self.mock_runner.request_timeout_sec = None
     # pylint: disable=protected-access
     self.mock_runner._config = mock.MagicMock()
     self.mock_runner._config.tokenizer_path = "/path/to/tokenizer"
     self.mock_runner.__enter__.return_value = self.mock_runner
+    # pylint: enable=protected-access
+
+  def test_model_args_uses_server_args_model_name_or_default(self):
+    # pylint: disable=protected-access
+    self.assertEqual(
+        lm_eval_module._model_args(self.mock_runner),
+        "base_url=http://127.0.0.1:8080,model=test_model",
+    )
+    for server_args in ({}, {"model_name": ""}, {"other": "x"}):
+      with self.subTest(server_args=server_args):
+        self.mock_runner.server_args = server_args
+        self.assertEqual(
+            lm_eval_module._model_args(self.mock_runner),
+            "base_url=http://127.0.0.1:8080,"
+            f"model={constants.DEFAULT_MODEL_NAME}",
+        )
+    self.mock_runner.server_args = {"model_name": "m"}
+    self.mock_runner.request_timeout_sec = 12.5
+    self.assertEqual(
+        lm_eval_module._model_args(self.mock_runner),
+        "base_url=http://127.0.0.1:8080,model=m,timeout=12.5",
+    )
     # pylint: enable=protected-access
 
   @mock.patch(
@@ -62,7 +90,7 @@ class TestLmEvalAdapter(unittest.TestCase):
     self.mock_runner.__enter__.assert_called_once()
     mock_lm_eval.simple_evaluate.assert_called_once_with(
         model=constants.LOCAL_CHAT_SCORE_MODEL_NAME,
-        model_args="base_url=http://127.0.0.1:8080,model=test-model",
+        model_args="base_url=http://127.0.0.1:8080,model=test_model",
         tasks=["task1"],
         num_fewshot=0,
         batch_size=1,
@@ -73,6 +101,26 @@ class TestLmEvalAdapter(unittest.TestCase):
     self.assertEqual(results.framework_type, "lm-eval")
     self.assertEqual(results.aggregated_metrics["task1"]["acc"], 0.9)
     self.assertEqual(results.metadata["lm_eval_version"], "0.4")
+
+  @mock.patch(
+      "model_eval.frameworks.lm_eval.lm_eval.lm_eval"
+  )
+  @mock.patch(
+      "model_eval.frameworks.lm_eval.lm_eval.lm_eval_tasks"
+  )
+  def test_evaluate_defaults_model_name_and_forwards_timeout(
+      self, mock_tasks, mock_lm_eval
+  ):
+    del mock_tasks
+    mock_lm_eval.simple_evaluate.return_value = {}
+    self.mock_runner.server_args = {}
+    self.mock_runner.request_timeout_sec = 300.0
+    lm_eval.LmEvalFramework().evaluate(self.mock_runner, ["task1"])
+    self.assertEqual(
+        mock_lm_eval.simple_evaluate.call_args.kwargs["model_args"],
+        f"base_url=http://127.0.0.1:8080,model={constants.DEFAULT_MODEL_NAME},"
+        "timeout=300.0",
+    )
 
   @mock.patch(
       "model_eval.frameworks.lm_eval.lm_eval.lm_eval"
@@ -154,6 +202,15 @@ class TestLmEvalAdapter(unittest.TestCase):
       framework.evaluate(
           self.mock_runner, ["task1"], eval_args={"apply_chat_template": False}
       )
+
+  @mock.patch("model_eval.frameworks.lm_eval.lm_eval.lm_eval")
+  def test_evaluate_rejects_non_chat_runner_endpoint(self, mock_lm_eval):
+    self.mock_runner.endpoints = ("v1/embeddings",)
+    with self.assertRaisesRegex(
+        ValueError, "lm-eval requires endpoint 'v1/chat/completions'"
+    ):
+      lm_eval.LmEvalFramework().evaluate(self.mock_runner, ["task1"])
+    mock_lm_eval.simple_evaluate.assert_not_called()
 
   def test_evaluate_native_conflicts(self):
     framework = lm_eval.LmEvalFramework()

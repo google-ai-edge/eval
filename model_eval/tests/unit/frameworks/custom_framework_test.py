@@ -26,7 +26,7 @@ class CustomFrameworkTest(absltest.TestCase):
   def test_generate_sends_payload_correctly(self):
     runner = mock.MagicMock()
     runner.server_url = "http://dummy"
-    runner.model_name = "fake-model"
+    runner.server_args = {}
 
     task = tasks.CustomTask(
         name="foo",
@@ -55,7 +55,7 @@ class CustomFrameworkTest(absltest.TestCase):
     mock_client.post.assert_called_once_with(
         "http://dummy/v1/chat/completions",
         json={
-            "model": "fake-model",
+            "model": "default_model",
             "messages": input_msgs,
             "temperature": 1.0,
             "max_tokens": 256,
@@ -74,10 +74,10 @@ class CustomFrameworkTest(absltest.TestCase):
     res_list = custom._apply_samples(rows, [0, 4], "foo")
     self.assertEqual(res_list, [{"id": 0}, {"id": 4}])
 
-  def test_generate_with_gen_kwargs(self):
+  def test_generate_with_gen_kwargs_and_server_args_model_name(self):
     runner = mock.MagicMock()
     runner.server_url = "http://dummy"
-    runner.model_name = "fake"
+    runner.server_args = {"model_name": "gemma-4-E2B-it"}
 
     cfg = config.GenerationConfig(
         temperature=0.2, max_new_tokens=64, stop_sequences=["\n", "END"]
@@ -104,7 +104,7 @@ class CustomFrameworkTest(absltest.TestCase):
     mock_client.post.assert_called_once_with(
         "http://dummy/v1/chat/completions",
         json={
-            "model": "fake",
+            "model": "gemma-4-E2B-it",
             "messages": input_msgs,
             "temperature": 0.2,
             "max_tokens": 64,

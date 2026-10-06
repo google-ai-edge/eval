@@ -29,7 +29,6 @@ class TestLiteRTLMServer(unittest.TestCase):
     super().setUp()
     self.mock_engine = mock.MagicMock()
     mock_cfg = mock.MagicMock()
-    mock_cfg.model_name = "test-model"
     mock_cfg.always_return_not_greedy = False
     mock_cfg.thinking = None
     mock_cfg.thinking_budget = None
@@ -324,7 +323,6 @@ class TestLiteRTLMServer(unittest.TestCase):
     mock_session.run_text_scoring.return_value = mock_result
 
     mock_cfg = mock.MagicMock()
-    mock_cfg.model_name = "test-model"
     mock_cfg.always_return_not_greedy = True
     mock_cfg.thinking = None
     mock_cfg.thinking_budget = None
@@ -404,7 +402,6 @@ class TestLiteRTLMServer(unittest.TestCase):
     )
 
     mock_cfg = mock.MagicMock()
-    mock_cfg.model_name = "test-model"
     mock_cfg.always_return_not_greedy = False
     mock_cfg.thinking = True
     mock_cfg.thinking_budget = 100

@@ -17,13 +17,14 @@
 import unittest
 from unittest import mock
 
-from model_eval.runners import base
 from model_eval.runners.litert_lm import litert_lm
 
 
 class TestLiteRtLmRunner(unittest.TestCase):
 
-  @mock.patch("model_eval.runners.base.requests.post")
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.requests.post"
+  )
   @mock.patch(
       "model_eval.runners.litert_lm.litert_lm.threading.Thread"
   )
@@ -62,7 +63,6 @@ class TestLiteRtLmRunner(unittest.TestCase):
     config = litert_lm.LiteRtLmRunner.Config(
         runner_type="litert-lm",
         model_path="/path/to/model",
-        model_name="my-test-model",
         backend="gpu",
         max_num_tokens=2048,
         host="0.0.0.0",
@@ -98,7 +98,7 @@ class TestLiteRtLmRunner(unittest.TestCase):
 
     # Verify wait_for_server.
     mock_wait_for_server.assert_called_once_with(
-        "http://0.0.0.0:9090", timeout=base._DEFAULT_TIMEOUT_SECONDS
+        "http://0.0.0.0:9090", timeout=litert_lm._DEFAULT_TIMEOUT_SECONDS
     )
 
     runner.stop()
@@ -106,7 +106,9 @@ class TestLiteRtLmRunner(unittest.TestCase):
   @mock.patch(
       "model_eval.runners.litert_lm.litert_lm.litert_lm.set_min_log_severity"
   )
-  @mock.patch("model_eval.runners.base.requests.post")
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.requests.post"
+  )
   @mock.patch(
       "model_eval.runners.litert_lm.litert_lm.threading.Thread"
   )
@@ -142,7 +144,6 @@ class TestLiteRtLmRunner(unittest.TestCase):
     config = litert_lm.LiteRtLmRunner.Config(
         runner_type="litert-lm",
         model_path="/path/to/model",
-        model_name="my-test-model",
         backend="cpu",
         vision_backend="gpu",
         audio_backend="cpu",
@@ -165,7 +166,9 @@ class TestLiteRtLmRunner(unittest.TestCase):
   @mock.patch(
       "model_eval.runners.litert_lm.litert_lm.litert_lm.set_min_log_severity"
   )
-  @mock.patch("model_eval.runners.base.requests.post")
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.requests.post"
+  )
   @mock.patch(
       "model_eval.runners.litert_lm.litert_lm.threading.Thread"
   )
@@ -201,7 +204,6 @@ class TestLiteRtLmRunner(unittest.TestCase):
     config = litert_lm.LiteRtLmRunner.Config(
         runner_type="litert-lm",
         model_path="/path/to/model",
-        model_name="my-test-model",
         backend="cpu",
         enable_speculative_decoding=True,
     )
@@ -333,7 +335,9 @@ class TestLiteRtLmRunner(unittest.TestCase):
   @mock.patch(
       "model_eval.runners.litert_lm.litert_lm.litert_lm.set_min_log_severity"
   )
-  @mock.patch("model_eval.runners.base.requests.post")
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.requests.post"
+  )
   @mock.patch(
       "model_eval.runners.litert_lm.litert_lm.threading.Thread"
   )
@@ -369,7 +373,6 @@ class TestLiteRtLmRunner(unittest.TestCase):
     config = litert_lm.LiteRtLmRunner.Config(
         runner_type="litert-lm",
         model_path="/path/to/model",
-        model_name="my-test-model",
         backend="cpu",
         activation_data_type="fp16",
     )
@@ -390,7 +393,9 @@ class TestLiteRtLmRunner(unittest.TestCase):
   @mock.patch(
       "model_eval.runners.litert_lm.litert_lm.litert_lm.set_min_log_severity"
   )
-  @mock.patch("model_eval.runners.base.requests.post")
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.requests.post"
+  )
   @mock.patch(
       "model_eval.runners.litert_lm.litert_lm.threading.Thread"
   )
@@ -426,7 +431,6 @@ class TestLiteRtLmRunner(unittest.TestCase):
     config = litert_lm.LiteRtLmRunner.Config(
         runner_type="litert-lm",
         model_path="/path/to/model",
-        model_name="my-test-model",
         backend="cpu",
         activation_data_type="fp32",
     )
@@ -465,22 +469,6 @@ class TestLiteRtLmRunner(unittest.TestCase):
     runner = litert_lm.LiteRtLmRunner(config)
     with self.assertRaisesRegex(ValueError, "Unsupported activation data type"):
       runner.start()
-  def test_capabilities_enable_scoring(self):
-    # Default is True
-    config_default = litert_lm.LiteRtLmRunner.Config(
-        runner_type="litert-lm", model_path="/foo"
-    )
-    runner_default = litert_lm.LiteRtLmRunner(config_default)
-    self.assertTrue(runner_default.capabilities.text_scoring)
-    self.assertFalse(runner_default.capabilities.multimodal_scoring)
-
-    # Set to False
-    config_disabled = litert_lm.LiteRtLmRunner.Config(
-        runner_type="litert-lm", model_path="/foo", enable_scoring=False
-    )
-    runner_disabled = litert_lm.LiteRtLmRunner(config_disabled)
-    self.assertFalse(runner_disabled.capabilities.text_scoring)
-    self.assertFalse(runner_disabled.capabilities.multimodal_scoring)
 
   def test_thinking_configuration(self):
     # Defaults
@@ -496,6 +484,160 @@ class TestLiteRtLmRunner(unittest.TestCase):
     )
     self.assertTrue(config_custom.thinking)
     self.assertEqual(config_custom.thinking_budget, 10)
+
+  def test_endpoints_and_request_timeout_sec(self):
+    runner = litert_lm.LiteRtLmRunner(
+        litert_lm.LiteRtLmRunner.Config(
+            runner_type="litert-lm",
+            model_path="/foo",
+            request_timeout_sec=300,
+        )
+    )
+    self.assertEqual(
+        runner.endpoints, ("v1/chat/completions", "v1/chat/score")
+    )
+    self.assertEqual(runner.request_timeout_sec, 300.0)
+    self.assertEqual(runner.server_url, "http://127.0.0.1:8080")
+    self.assertEqual(runner.server_args, {})
+    self.assertFalse(runner.returns_greedy)
+
+    runner_no_scoring = litert_lm.LiteRtLmRunner(
+        litert_lm.LiteRtLmRunner.Config(
+            runner_type="litert-lm",
+            model_path="/foo",
+            enable_scoring=False,
+            always_return_not_greedy=False,
+        )
+    )
+    self.assertEqual(runner_no_scoring.endpoints, ("v1/chat/completions",))
+    self.assertIsNone(runner_no_scoring.request_timeout_sec)
+    self.assertTrue(runner_no_scoring.returns_greedy)
+
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.set_min_log_severity"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.requests.post"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.threading.Thread"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.uvicorn.Server"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.uvicorn.Config"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm._litert_lm_server.build_app"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm._litert_lm_server.wait_for_server"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.Engine"
+  )
+  def test_start_skips_scoring_validation_when_disabled(
+      self,
+      mock_engine,
+      mock_wait_for_server,
+      mock_build_app,
+      mock_uvicorn_config,
+      mock_uvicorn_server,
+      mock_thread,
+      mock_post,
+      mock_set_min_log_severity,
+  ):
+    del (
+        mock_engine,
+        mock_wait_for_server,
+        mock_build_app,
+        mock_uvicorn_config,
+        mock_uvicorn_server,
+        mock_thread,
+        mock_set_min_log_severity,
+    )
+    mock_post.return_value.json.return_value = {"choices": []}
+    runner = litert_lm.LiteRtLmRunner(
+        litert_lm.LiteRtLmRunner.Config(
+            runner_type="litert-lm",
+            model_path="/path/to/model",
+            enable_scoring=False,
+        )
+    )
+    with mock.patch(
+        "model_eval.runners.litert_lm.litert_lm.os.path.exists",
+        return_value=True,
+    ):
+      runner.start()
+    mock_post.assert_called_once_with(
+        "http://127.0.0.1:8080/v1/chat/completions",
+        json={
+            "model": "default_model",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 1,
+        },
+        timeout=litert_lm._DEFAULT_TIMEOUT_SECONDS,
+    )
+    runner.stop()
+
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.requests.post"
+  )
+  def test_validate_completions(self, mock_post):
+    runner = litert_lm.LiteRtLmRunner(
+        litert_lm.LiteRtLmRunner.Config(
+            runner_type="litert-lm", model_path="/foo"
+        )
+    )
+    mock_post.return_value.json.return_value = {"choices": []}
+    runner._validate_completions()
+    mock_post.assert_called_once_with(
+        "http://127.0.0.1:8080/v1/chat/completions",
+        json={
+            "model": "default_model",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 1,
+        },
+        timeout=litert_lm._DEFAULT_TIMEOUT_SECONDS,
+    )
+
+    mock_post.return_value.json.return_value = {}
+    with self.assertRaisesRegex(
+        RuntimeError, "Runner failed generation validation"
+    ):
+      runner._validate_completions()
+
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.requests.post"
+  )
+  def test_validate_scoring(self, mock_post):
+    runner = litert_lm.LiteRtLmRunner(
+        litert_lm.LiteRtLmRunner.Config(
+            runner_type="litert-lm", model_path="/foo"
+        )
+    )
+    mock_post.return_value.json.return_value = {
+        "choices": [{"score": 0.9, "logprobs": []}]
+    }
+    runner._validate_scoring()
+    mock_post.assert_called_once_with(
+        "http://127.0.0.1:8080/v1/chat/score",
+        json={
+            "model": "default_model",
+            "messages": [
+                {"role": "user", "content": "hello"},
+                {"role": "assistant", "content": "hi"},
+            ],
+        },
+        timeout=litert_lm._DEFAULT_TIMEOUT_SECONDS,
+    )
+
+    mock_post.return_value.json.return_value = {"choices": [{}]}
+    with self.assertRaisesRegex(
+        RuntimeError, "Runner failed scoring validation"
+    ):
+      runner._validate_scoring()
 
 
 if __name__ == "__main__":

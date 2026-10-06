@@ -33,7 +33,6 @@ class LiteRtLmIntegrationTest(unittest.TestCase):
     self.config = litert_lm.LiteRtLmRunner.Config(
         runner_type="litert-lm",
         model_path=model_path,
-        model_name="tiny-gemma-integration",
         backend="cpu",
         host="127.0.0.1",
         port=19191,

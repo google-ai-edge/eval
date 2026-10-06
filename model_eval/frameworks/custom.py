@@ -263,11 +263,15 @@ class CustomFramework(base.AbstractEvalFramework):
       The generated prediction.
     """
     # Transmit the isolated chat messages context to the OpenAI-compatible
-    # endpoint.
+    # endpoint. The `model` field comes from the runner's server args (e.g.
+    # `model_name` for servers hosting several models), else the default.
+    model_name = (
+        runner.server_args.get("model_name") or api_constants.DEFAULT_MODEL_NAME
+    )
     resp = http_client.post(
         f"{runner.server_url}/{api_constants.CHAT_COMPLETIONS_ENDPOINT}",
         json={
-            "model": runner.model_name,
+            "model": model_name,
             "messages": input_messages,
             "temperature": generation_config.temperature,
             "max_tokens": generation_config.max_new_tokens,

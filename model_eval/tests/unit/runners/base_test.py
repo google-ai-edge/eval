@@ -23,6 +23,10 @@ from model_eval.runners import base
 
 class DummyRunner(base.AbstractRunner):
 
+  def __init__(self, config: base.RunnerConfig | None = None) -> None:
+    super().__init__()
+    self._config = config or DummyRunner.Config(runner_type="dummy")
+
   def start(self) -> None:
     pass
 
@@ -34,74 +38,80 @@ class DummyRunner(base.AbstractRunner):
     return "http://127.0.0.1:8080"
 
   @property
-  def model_name(self) -> str:
-    return "dummy_model"
+  def endpoints(self) -> tuple[str, ...]:
+    return (constants.CHAT_COMPLETIONS_ENDPOINT, constants.CHAT_SCORE_ENDPOINT)
 
-  @property
-  def capabilities(self) -> base.RunnerCapabilities:
-    return base.RunnerCapabilities()
+  class Config(base.RunnerConfig):
 
-  @classmethod
-  def from_unified_args(
-      cls, model_path, device, runner_args
-  ) -> base.RunnerConfig:
-    return base.RunnerConfig(runner_type="dummy")
+    @classmethod
+    def from_unified_args(
+        cls, model_path, device, runner_args
+    ) -> "DummyRunner.Config":
+      del model_path, device
+      return cls(runner_type="dummy", **runner_args)
 
 
 class TestBaseRunner(unittest.TestCase):
 
-  @mock.patch("model_eval.runners.base.requests.post")
-  def test_validate_completions_success(self, mock_post):
-    mock_post.return_value.json.return_value = {"choices": []}
-    runner = DummyRunner()
-    runner._validate_completions()
-    mock_post.assert_called_once_with(
-        f"http://127.0.0.1:8080/{constants.CHAT_COMPLETIONS_ENDPOINT}",
-        json={
-            "model": "dummy_model",
-            "messages": [{"role": "user", "content": "hi"}],
-            "max_tokens": 1,
-        },
-        timeout=base._DEFAULT_TIMEOUT_SECONDS,
+  def test_runner_config_request_timeout_sec(self):
+    self.assertIsNone(
+        DummyRunner.Config(runner_type="dummy").request_timeout_sec
+    )
+    self.assertEqual(
+        DummyRunner.Config.from_unified_args(
+            None, None, {"request_timeout_sec": 30}
+        ).request_timeout_sec,
+        30.0,
+    )
+    for bad in (0, -1, "soon", True, False):
+      with self.subTest(bad=bad):
+        with self.assertRaisesRegex(
+            ValueError, "request_timeout_sec must be a positive number"
+        ):
+          DummyRunner.Config(runner_type="dummy", request_timeout_sec=bad)
+
+  def test_describe_runner_args(self):
+    names = [arg["name"] for arg in DummyRunner.describe_runner_args()]
+    self.assertIn("request_timeout_sec", names)
+    self.assertIn("server_args", names)
+
+  def test_runner_config_server_args(self):
+    self.assertEqual(DummyRunner.Config(runner_type="dummy").server_args, {})
+    self.assertEqual(
+        DummyRunner.Config.from_unified_args(
+            None, None, {"server_args": {"model_name": "m", "k": 1}}
+        ).server_args,
+        {"model_name": "m", "k": 1},
     )
 
-  @mock.patch("model_eval.runners.base.requests.post")
-  def test_validate_completions_failure(self, mock_post):
-    mock_post.return_value.json.return_value = {}
-    runner = DummyRunner()
-    with self.assertRaisesRegex(
-        RuntimeError, "Runner failed generation validation"):
-      runner._validate_completions()
-
-  @mock.patch("model_eval.runners.base.requests.post")
-  def test_validate_scoring_success(self, mock_post):
-    mock_post.return_value.json.return_value = {
-        "choices": [{"score": 0.9, "logprobs": []}]
-    }
-    runner = DummyRunner()
-    runner._validate_scoring()
-    mock_post.assert_called_once_with(
-        f"http://127.0.0.1:8080/{constants.CHAT_SCORE_ENDPOINT}",
-        json={
-            "model": "dummy_model",
-            "messages": [
-                {"role": "user", "content": "hello"},
-                {"role": "assistant", "content": "hi"},
-            ],
-        },
-        timeout=base._DEFAULT_TIMEOUT_SECONDS,
+  def test_runner_server_args_from_config(self):
+    self.assertEqual(DummyRunner().server_args, {})
+    runner = DummyRunner(
+        DummyRunner.Config(runner_type="dummy", server_args={"model_name": "m"})
     )
+    args = runner.server_args
+    self.assertEqual(args, {"model_name": "m"})
+    # The property returns a copy; mutating it does not affect the config.
+    args["model_name"] = "mutated"
+    self.assertEqual(runner.server_args, {"model_name": "m"})
 
-  @mock.patch("model_eval.runners.base.requests.post")
-  def test_validate_scoring_failure(self, mock_post):
-    mock_post.return_value.json.return_value = {"choices": [{}]}
-    runner = DummyRunner()
-    with self.assertRaisesRegex(
-        RuntimeError, "Runner failed scoring validation"):
-      runner._validate_scoring()
+  def test_runner_request_timeout_sec_from_config(self):
+    self.assertIsNone(DummyRunner().request_timeout_sec)
+    runner = DummyRunner(
+        DummyRunner.Config(runner_type="dummy", request_timeout_sec=3)
+    )
+    self.assertEqual(runner.request_timeout_sec, 3.0)
 
   def test_reentrancy_guard(self):
     runner = DummyRunner()
+    self.assertEqual(runner.server_url, "http://127.0.0.1:8080")
+    self.assertEqual(
+        runner.endpoints,
+        (constants.CHAT_COMPLETIONS_ENDPOINT, constants.CHAT_SCORE_ENDPOINT),
+    )
+    self.assertIsNone(runner.request_timeout_sec)
+    # Exiting before entering is a safe no-op.
+    runner.__exit__()
     with mock.patch.object(
         runner, "start", wraps=runner.start
     ) as mock_start, mock.patch.object(

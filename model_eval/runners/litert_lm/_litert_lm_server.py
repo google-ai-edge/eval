@@ -123,7 +123,6 @@ def build_app(engine: Any, config: base.RunnerConfig) -> fastapi.FastAPI:
   """
 
   app = fastapi.FastAPI()
-  model_name = getattr(config, "model_name", "litert-model")
   always_return_not_greedy = getattr(config, "always_return_not_greedy", True)
 
   thinking = getattr(config, "thinking", None)
@@ -179,7 +178,7 @@ def build_app(engine: Any, config: base.RunnerConfig) -> fastapi.FastAPI:
         engine,
         context_msgs,
         continuation,
-        model_name,
+        req.model,
         always_return_not_greedy,
     )
 
@@ -250,7 +249,7 @@ def build_app(engine: Any, config: base.RunnerConfig) -> fastapi.FastAPI:
         "id": "chatcmpl-generation",
         "object": "chat.completion",
         "created": int(time.time()),
-        "model": model_name,
+        "model": req.model,
         "choices": [{
             "index": 0,
             "message": message_payload,
@@ -324,7 +323,7 @@ def _chat_score(
         which serve as the conversation history/context.
       continuation: The assistant's response string whose log probabilities and
         score are being evaluated.
-      model_name: The identifier of the model, to be included in the output.
+      model_name: The model identifier from the request, echoed in the output.
       always_return_not_greedy: If True, bypasses the generation step and always
         sets is_greedy to False.
 

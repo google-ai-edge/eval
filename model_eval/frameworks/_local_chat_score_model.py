@@ -65,7 +65,9 @@ class LocalChatScoreModel(openai_completions.LocalChatCompletion):
           "messages": messages,
       }
 
-      response = requests_lib.post(self._scoring_url, json=payload)
+      response = requests_lib.post(
+          self._scoring_url, json=payload, timeout=self.timeout
+      )
       response.raise_for_status()
       data = response.json()
 

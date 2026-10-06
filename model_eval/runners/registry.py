@@ -22,7 +22,7 @@ import pydantic
 
 
 class _HasConfig(Protocol):
-  config: ClassVar[type[pydantic.BaseModel]]
+  config_type: ClassVar[type[pydantic.BaseModel]]
 
   def __init__(self, config: Any, *args: Any, **kwargs: Any) -> None:  # pylint: disable=unused-argument
     ...
@@ -68,7 +68,7 @@ def create_runner(
   if name not in _REGISTRY:
     raise ValueError(f"Runner '{name}' not found in registry.")
   cls = _REGISTRY[name]
-  return typing.cast(base.AbstractRunner, cls(cls.config(**config)))
+  return typing.cast(base.AbstractRunner, cls(cls.config_type(**config)))
 
 
 def get_runner_cls(name: base.RunnerType | str) -> type[_HasConfig]:

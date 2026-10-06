@@ -105,6 +105,7 @@ def _build_model_with_recording_post(captured, response=None):
   )
   model._scoring_url = "http://127.0.0.1:8080/v1/chat/score"
   model.model = "test-model"
+  model.timeout = 300  # TemplateAPI default; __init__ is bypassed.
   return model, fake_post
 
 

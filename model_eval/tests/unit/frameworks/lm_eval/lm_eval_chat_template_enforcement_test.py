@@ -40,8 +40,10 @@ class LmEvalApplyChatTemplateEnforcementTest(absltest.TestCase):
   def test_apply_chat_template_false_raises_value_error(self):
     fw = lm_eval.LmEvalFramework()
     runner = mock.MagicMock()
-    runner.model_name = "test"
     runner.server_url = "http://test"
+    runner.server_args = {}
+    runner.endpoints = ("v1/chat/completions", "v1/chat/score")
+    runner.request_timeout_sec = None
     runner.returns_greedy = True
 
     with self.assertRaisesRegex(
@@ -65,8 +67,10 @@ class LmEvalApplyChatTemplateEnforcementTest(absltest.TestCase):
     """
     fw = lm_eval.LmEvalFramework()
     runner = mock.MagicMock()
-    runner.model_name = "test"
     runner.server_url = "http://test"
+    runner.server_args = {}
+    runner.endpoints = ("v1/chat/completions", "v1/chat/score")
+    runner.request_timeout_sec = None
     runner.returns_greedy = True
 
     # We patch lm_eval.simple_evaluate to a no-op so the function returns

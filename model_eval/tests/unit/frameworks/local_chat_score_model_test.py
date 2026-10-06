@@ -26,8 +26,9 @@ class TestLocalChatScoreModel(unittest.TestCase):
     super().setUp()
     self.base_url = "http://127.0.0.1:8080"
     self.model_name = "test-model"
+    self.timeout = 42
     self.model = _local_chat_score_model.LocalChatScoreModel(
-        base_url=self.base_url, model=self.model_name
+        base_url=self.base_url, model=self.model_name, timeout=self.timeout
     )
 
   @mock.patch(
@@ -67,7 +68,9 @@ class TestLocalChatScoreModel(unittest.TestCase):
         ],
     }
     mock_requests.post.assert_any_call(
-        f"{self.base_url}/v1/chat/score", json=expected_payload_1
+        f"{self.base_url}/v1/chat/score",
+        json=expected_payload_1,
+        timeout=self.timeout,
     )
 
     # Second call without context.
@@ -78,7 +81,9 @@ class TestLocalChatScoreModel(unittest.TestCase):
         ],
     }
     mock_requests.post.assert_any_call(
-        f"{self.base_url}/v1/chat/score", json=expected_payload_2
+        f"{self.base_url}/v1/chat/score",
+        json=expected_payload_2,
+        timeout=self.timeout,
     )
 
 
