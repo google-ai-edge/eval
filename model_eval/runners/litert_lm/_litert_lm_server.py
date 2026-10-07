@@ -68,10 +68,8 @@ class _ChatRequest(pydantic.BaseModel):
   # truncates at earliest matching stop sequence.
   stop: list[str] | str | None = None
   # The limit on tokens produced after the prompt. Lighteval treats `max_tokens`
-  # and `max_completion_tokens` as interchangeable aliases.
-  # Accepted on the wire so that pydantic doesn't reject lighteval/litellm
-  # requests, but NOT enforced. The underlying litert_lm Conversation API
-  # exposes no per-call token-budget hook.
+  # and `max_completion_tokens` as interchangeable aliases; when both are
+  # provided, `max_completion_tokens` takes precedence.
   max_tokens: int | None = None
   max_completion_tokens: int | None = None
 
@@ -190,10 +188,8 @@ def build_app(engine: Any, config: base.RunnerConfig) -> fastapi.FastAPI:
 
     All generation goes through the higher-level `Conversation` API
     (`engine.create_conversation` + `conv.send_message`) — text and
-    multimodal alike. The `Conversation` API does not currently expose a
-    per-request token-budget hook; `_ChatRequest.max_tokens` is accepted on the
-    wire but NOT ENFORCED by this endpoint. Long-form generation may run to
-    EOS or to the engine's `max_num_tokens` ceiling.
+    multimodal alike. Per-request token budgets (`max_completion_tokens` or
+    `max_tokens`) are forwarded to `conv.send_message(max_output_tokens=...)`.
 
     Args:
         req: The chat completion request containing the model, messages, and
@@ -226,11 +222,20 @@ def build_app(engine: Any, config: base.RunnerConfig) -> fastapi.FastAPI:
     if thinking_config is not None:
       kwargs["thinking_config"] = thinking_config
 
+    max_output_tokens = (
+        req.max_completion_tokens
+        if req.max_completion_tokens is not None
+        else req.max_tokens
+    )
+    send_kwargs = {}
+    if max_output_tokens is not None:
+      send_kwargs["max_output_tokens"] = max_output_tokens
+
     with engine.create_conversation(
         messages=preface, sampler_config=sampler_config, **kwargs
     ) as conv:
       # Send the query message to generate the completion.
-      response = conv.send_message(query)
+      response = conv.send_message(query, **send_kwargs)
       text = str(response)
       # The name of the channel used to store reasoning is determined by the
       # llm metadata proto. Gemma4 uses "thought", while other models may

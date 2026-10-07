@@ -22,6 +22,7 @@ from model_eval.api import constants as api_constants
 from model_eval.runners import base
 from model_eval.runners import registry
 from model_eval.runners.litert_lm import _litert_lm_server
+import pydantic
 import requests
 import uvicorn
 
@@ -72,8 +73,22 @@ def _resolve_model_path(path: str) -> str:  # pylint: disable=g-doc-args
   return path
 
 
-def _parse_backend(backend_str: str) -> litert_lm.Backend:
-  """Parses a string backend to the litert_lm.Backend."""
+def _parse_backend(
+    backend_str: str | litert_lm.Backend,
+    litert_dispatch_lib_dir: str | None = None,
+) -> litert_lm.Backend:
+  """Parses a string backend to the litert_lm.Backend.
+
+  Args:
+    backend_str: The backend name ("cpu", "gpu" or "npu"), or an already
+      constructed `litert_lm.Backend`.
+    litert_dispatch_lib_dir: Optional directory containing the LiteRT dispatch
+      library for the NPU backend. If None, LiteRT LM uses the dispatch library
+      bundled with its package. Ignored for non-NPU backends.
+
+  Returns:
+    The parsed `litert_lm.Backend`.
+  """
   if isinstance(backend_str, litert_lm.Backend):
     return backend_str
   backend_upper = backend_str.upper()
@@ -82,7 +97,9 @@ def _parse_backend(backend_str: str) -> litert_lm.Backend:
   elif backend_upper == "GPU":
     return litert_lm.Backend.GPU()
   elif backend_upper == "NPU":
-    return litert_lm.Backend.NPU()
+    return litert_lm.Backend.NPU(
+        litert_dispatch_lib_dir=litert_dispatch_lib_dir
+    )
   else:
     valid_backends = ["CPU", "GPU", "NPU"]
     raise ValueError(
@@ -180,12 +197,28 @@ class LiteRtLmRunner(base.AbstractRunner):
     min_log_severity: int = 1000
     # Whether to skip the slow run_decode step for greedy verification.
     always_return_not_greedy: bool = True
-    # Whether to enable text and multimodal scoring.
+    # Whether to enable text and multimodal scoring (defaults to False on NPU,
+    # where CreateScoring is not implemented by the LiteRT NPU backend).
     enable_scoring: bool = True
     # Whether to enable thinking/reasoning generation.
     thinking: bool | None = None
     # Budget for reasoning tokens. 0 disables thinking. -1 enables unlimited.
     thinking_budget: int | None = None
+    # Optional directory containing the LiteRT dispatch library for the NPU
+    # backend (e.g. a custom vendor-compiled LiteRtDispatch.dll). If unset,
+    # LiteRT LM uses the dispatch library bundled with its package. Only valid
+    # when one of the backends is "npu".
+    litert_dispatch_lib_dir: str | None = None
+
+    @pydantic.model_validator(mode="after")
+    def _default_enable_scoring_for_backend(self) -> "LiteRtLmRunner.Config":
+      if (
+          "enable_scoring" not in self.model_fields_set
+          and isinstance(self.backend, str)
+          and self.backend.upper() == "NPU"
+      ):
+        self.enable_scoring = False
+      return self
 
     @classmethod
     def from_unified_args(
@@ -226,14 +259,27 @@ class LiteRtLmRunner(base.AbstractRunner):
     litert_lm.set_min_log_severity(
         _clamp_log_severity(self._config.min_log_severity)
     )
+    dispatch_lib_dir = self._config.litert_dispatch_lib_dir
+    if dispatch_lib_dir is not None and not any(
+        isinstance(b, str) and b.upper() == "NPU"
+        for b in (
+            self._config.backend,
+            self._config.vision_backend,
+            self._config.audio_backend,
+        )
+    ):
+      raise ValueError(
+          "litert_dispatch_lib_dir is only used by the NPU backend, but none"
+          " of backend, vision_backend or audio_backend is 'npu'."
+      )
     engine_kwargs = {}
     if self._config.vision_backend:
       engine_kwargs["vision_backend"] = _parse_backend(
-          self._config.vision_backend
+          self._config.vision_backend, dispatch_lib_dir
       )
     if self._config.audio_backend:
       engine_kwargs["audio_backend"] = _parse_backend(
-          self._config.audio_backend
+          self._config.audio_backend, dispatch_lib_dir
       )
     if self._config.enable_speculative_decoding is not None:
       engine_kwargs["enable_speculative_decoding"] = (
@@ -248,7 +294,7 @@ class LiteRtLmRunner(base.AbstractRunner):
     path = _resolve_model_path(self._config.model_path)
     self._engine = litert_lm.Engine(
         path,
-        backend=_parse_backend(self._config.backend),
+        backend=_parse_backend(self._config.backend, dispatch_lib_dir),
         max_num_tokens=self._config.max_num_tokens,
         **engine_kwargs,
     )

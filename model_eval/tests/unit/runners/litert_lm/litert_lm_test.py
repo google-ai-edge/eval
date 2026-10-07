@@ -577,6 +577,133 @@ class TestLiteRtLmRunner(unittest.TestCase):
     )
     runner.stop()
 
+  def test_enable_scoring_defaults_to_false_on_npu(self):
+    config_cpu = litert_lm.LiteRtLmRunner.Config(
+        runner_type="litert-lm", model_path="/path/to/model", backend="cpu"
+    )
+    self.assertTrue(config_cpu.enable_scoring)
+
+    config_npu = litert_lm.LiteRtLmRunner.Config(
+        runner_type="litert-lm", model_path="/path/to/model", backend="npu"
+    )
+    self.assertFalse(config_npu.enable_scoring)
+
+    config_npu_unified = litert_lm.LiteRtLmRunner.Config.from_unified_args(
+        model_path="/path/to/model", device="npu", runner_args={}
+    )
+    self.assertFalse(config_npu_unified.enable_scoring)
+
+    config_npu_explicit = litert_lm.LiteRtLmRunner.Config(
+        runner_type="litert-lm",
+        model_path="/path/to/model",
+        backend="npu",
+        enable_scoring=True,
+    )
+    self.assertTrue(config_npu_explicit.enable_scoring)
+
+  def test_parse_backend_npu_with_dispatch_lib_dir(self):
+    self.assertEqual(
+        litert_lm._parse_backend("npu", "/opt/npu_runtime"),
+        litert_lm.litert_lm.Backend.NPU(
+            litert_dispatch_lib_dir="/opt/npu_runtime"
+        ),
+    )
+    # The dispatch library directory is ignored for non-NPU backends.
+    self.assertEqual(
+        litert_lm._parse_backend("gpu", "/opt/npu_runtime"),
+        litert_lm.litert_lm.Backend.GPU(),
+    )
+
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.set_min_log_severity"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.requests.post"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.threading.Thread"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.uvicorn.Server"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.uvicorn.Config"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm._litert_lm_server.build_app"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm._litert_lm_server.wait_for_server"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.Engine"
+  )
+  def test_initialization_with_npu_dispatch_lib_dir(
+      self,
+      mock_engine,
+      mock_wait_for_server,
+      mock_build_app,
+      mock_uvicorn_config,
+      mock_uvicorn_server,
+      mock_thread,
+      mock_post,
+      mock_set_min_log_severity,
+  ):
+    del (
+        mock_wait_for_server,
+        mock_build_app,
+        mock_uvicorn_config,
+        mock_uvicorn_server,
+        mock_thread,
+        mock_set_min_log_severity,
+    )
+    mock_post.return_value.json.return_value = {"choices": []}
+    config = litert_lm.LiteRtLmRunner.Config(
+        runner_type="litert-lm",
+        model_path="/path/to/model",
+        backend="npu",
+        vision_backend="gpu",
+        litert_dispatch_lib_dir="/opt/npu_runtime",
+    )
+    runner = litert_lm.LiteRtLmRunner(config)
+    with mock.patch(
+        "model_eval.runners.litert_lm.litert_lm.os.path.exists",
+        return_value=True,
+    ):
+      runner.start()
+    mock_engine.assert_called_once_with(
+        "/path/to/model",
+        backend=litert_lm.litert_lm.Backend.NPU(
+            litert_dispatch_lib_dir="/opt/npu_runtime"
+        ),
+        max_num_tokens=4096,
+        vision_backend=litert_lm.litert_lm.Backend.GPU(),
+    )
+    runner.stop()
+
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.set_min_log_severity"
+  )
+  @mock.patch(
+      "model_eval.runners.litert_lm.litert_lm.litert_lm.Engine"
+  )
+  def test_dispatch_lib_dir_without_npu_backend_raises(
+      self, mock_engine, mock_set_min_log_severity
+  ):
+    del mock_set_min_log_severity
+    config = litert_lm.LiteRtLmRunner.Config(
+        runner_type="litert-lm",
+        model_path="/path/to/model",
+        backend="cpu",
+        litert_dispatch_lib_dir="/opt/npu_runtime",
+    )
+    runner = litert_lm.LiteRtLmRunner(config)
+    with self.assertRaisesRegex(
+        ValueError, "litert_dispatch_lib_dir is only used by the NPU backend"
+    ):
+      runner.start()
+    mock_engine.assert_not_called()
+
   @mock.patch(
       "model_eval.runners.litert_lm.litert_lm.requests.post"
   )

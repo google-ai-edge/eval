@@ -349,15 +349,7 @@ class TestLiteRTLMServer(unittest.TestCase):
     mock_session.run_decode.assert_not_called()
 
   def test_chat_completions_accepts_max_tokens_without_error(self):
-    """Schema-acceptance regression test.
-
-    The underlying `Conversation` API has no per-call token budget hook,
-    so `max_tokens` is NOT enforced by this endpoint. But the wire format
-    must still be valid: lighteval / litellm send `max_tokens` (and the
-    newer-spec alias `max_completion_tokens`) on every generation request, and
-    pydantic must accept both without 422'ing the request. This test guards
-    against a future schema change that drops those fields.
-    """
+    """Tests that max_tokens and max_completion_tokens are forwarded to send_message."""
     mock_conv = mock.MagicMock()
     self.mock_engine.create_conversation.return_value.__enter__.return_value = (
         mock_conv
@@ -365,34 +357,46 @@ class TestLiteRTLMServer(unittest.TestCase):
     mock_conv.send_message.return_value = litert_lm.Message.model(
         litert_lm.Contents.of("ok")
     )
-    for body in (
-        {
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "Hi"}],
-            "max_tokens": 128,
-        },
-        {
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "Hi"}],
-            "max_completion_tokens": 128,
-        },
-        {
-            "model": "test-model",
-            "messages": [{"role": "user", "content": "Hi"}],
-            "max_tokens": 64,
-            "max_completion_tokens": 128,
-        },
+    for body, expected_max_output_tokens in (
+        (
+            {
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 128,
+            },
+            128,
+        ),
+        (
+            {
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_completion_tokens": 256,
+            },
+            256,
+        ),
+        (
+            {
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "max_tokens": 64,
+                "max_completion_tokens": 128,
+            },
+            128,
+        ),
     ):
+      mock_conv.send_message.reset_mock()
       response = self.client.post("/v1/chat/completions", json=body)
       self.assertEqual(
           response.status_code,
           200,
           msg=(
               f"request body {body!r} was rejected (status "
-              f"{response.status_code}). pydantic must accept "
-              "max_tokens and max_completion_tokens even though the "
-              "endpoint does not enforce them."
+              f"{response.status_code})."
           ),
+      )
+      mock_conv.send_message.assert_called_once_with(
+          {"role": "user", "content": "Hi"},
+          max_output_tokens=expected_max_output_tokens,
       )
 
   def test_chat_completions_with_thinking_config(self):

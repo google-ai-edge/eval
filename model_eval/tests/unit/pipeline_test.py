@@ -289,6 +289,7 @@ class EvalPipelineTest(absltest.TestCase):
             "enable_scoring": True,
             "thinking": None,
             "thinking_budget": None,
+            "litert_dispatch_lib_dir": None,
         },
     )
 
