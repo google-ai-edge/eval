@@ -26,6 +26,7 @@
   - [1. Prepare the Dataset](#1-prepare-the-dataset)
   - [2. Task Definition](#2-task-definition)
   - [3. Run Custom Evaluation](#3-run-custom-evaluation)
+  - [4. Outputs, Telemetry, and Task Hooks](#4-outputs-telemetry-and-task-hooks)
 - [🔍 Discovery Commands](#-discovery-commands)
 - [⚖️ Dataset Licensing and Terms of Use](#️-dataset-licensing-and-terms-of-use)
 
@@ -380,10 +381,13 @@ Register your evaluation task via a Python file (e.g.,
 # File: register_custom_tasks.py
 
 from typing import Any, Iterator
-from model_eval.custom_tasks import CustomTask, DatasetRow, TaskRegistry, chat_response_text
+from model_eval.custom_tasks import CustomTask, DatasetRow, TaskArgs, TaskRegistry, chat_response_text
 
 def exact_match(
-    preds: Iterator[list[Any]], gts: Iterator[str], rows: Iterator[DatasetRow[str]]
+    preds: Iterator[list[Any]],
+    gts: Iterator[str],
+    rows: Iterator[DatasetRow[str]],
+    task_args: TaskArgs,
 ) -> dict[str, float]:
   # Retrieve generated text from each row's first response and compare with ground truth.
   p = [(chat_response_text(r[0]) or "").strip().lower() for r in preds]
@@ -403,7 +407,21 @@ TaskRegistry.global_registry().register(qa_task)
 
 ### 3. Run Custom Evaluation
 
-Point the CLI to your custom registration file using `--custom-tasks-file`:
+Point the CLI to your custom registration file using `--custom-tasks-file`.
+Against an already running OpenAI-compatible server:
+
+```bash
+ai-edge-eval \
+      --runner http-server \
+      --runner-args "server_url=http://localhost:8080,model_name=gemma-4-E2B-it" \
+      --tasks my_custom_qa \
+      --framework custom \
+      --custom-tasks-file register_custom_tasks.py \
+      --eval-args "limit=10" \
+      --output-dir your_result_directory
+```
+
+or with the in-process `litert-lm` runner:
 
 ```bash
 ai-edge-eval \
@@ -430,6 +448,30 @@ On a key collision `--eval-args` win. A chat task typically reads
 `task_args.get("model_name")` and passes it to
 `chat_request(..., model_name=...)`. File datasets (`.jsonl`/`.csv`) accept no
 eval-args task args; passing any is an error (`server_args` are ignored).
+
+### 4. Outputs, Telemetry, and Task Hooks
+
+Each evaluated row produces one per-sample output with the keys `input`,
+`prediction` (the list of decoded responses, one per request), `errors` (one
+entry per request, `None` on success), `telemetry` (one `RequestTelemetry` dict
+`{"latency_sec": ...}` per request with client-observed wall-clock seconds, or
+`None` for requests skipped after an earlier failure in the same row), and
+`ground_truth`.
+
+The framework also passes the per-request telemetry to `metric_fn` through each
+row's `metadata["telemetry"]`, so a task can compute throughput metrics (e.g. an
+ASR real-time factor from `audio_length_s / telemetry[0]["latency_sec"]`).
+
+Two `CustomTask` hooks keep large or configurable tasks manageable:
+
+- `sample_input_fn(row)`: when set, its return value is recorded as the
+  sample's `input` instead of the full `row["requests"]`. Use it when requests
+  embed large payloads (base64 audio or images) that would bloat the samples
+  file. See `examples/model_eval/audio_asr_custom_task.py`.
+- `metric_fn(preds, gts, rows, task_args)`: receives the same merged
+  `task_args` (`runner.server_args` beneath `--eval-args`) as the fourth
+  positional argument (e.g. `model_name`, or an output directory passed via
+  `--eval-args`).
 
 ---
 

@@ -22,7 +22,8 @@ from model_eval import custom_tasks as tasks
 class CustomTaskTest(absltest.TestCase):
 
   def test_construction(self):
-    def dummy_metric(preds, gts, rows):
+    def dummy_metric(preds, gts, rows, task_args):
+      del preds, gts, rows, task_args
       return {"val": 1.0}
 
     task = tasks.CustomTask(
@@ -35,6 +36,19 @@ class CustomTaskTest(absltest.TestCase):
     self.assertEqual(task.endpoint, "v1/chat/completions")
     self.assertEqual(task.dataset, "f.jsonl")
     self.assertIs(task.metric_fn, dummy_metric)
+    self.assertIsNone(task.sample_input_fn)
+
+    def summarise(row):
+      return row["ground_truth"]
+
+    task = tasks.CustomTask(
+        name="t2",
+        endpoint="v1/chat/completions",
+        dataset="f.jsonl",
+        metric_fn=dummy_metric,
+        sample_input_fn=summarise,
+    )
+    self.assertIs(task.sample_input_fn, summarise)
 
   def test_rejects_empty_endpoint(self):
     for bad in ("", "/", "///"):
@@ -46,7 +60,7 @@ class CustomTaskTest(absltest.TestCase):
               name="t1",
               endpoint=bad,
               dataset="f.jsonl",
-              metric_fn=lambda p, g, r: {},
+              metric_fn=lambda p, g, r, a: {},
           )
 
   def test_requests_alias_and_dataset_row_metadata(self):
@@ -67,6 +81,9 @@ class CustomTaskTest(absltest.TestCase):
     }
     self.assertIn("metadata", row_with_metadata)
     self.assertEqual(row_with_metadata["metadata"]["source"], "test_data")
+
+    telemetry_entry: tasks.RequestTelemetry = {"latency_sec": 0.25}
+    self.assertEqual(telemetry_entry["latency_sec"], 0.25)
 
   def test_chat_request_defaults_and_custom_config(self):
     messages = [{"role": "user", "content": "hello"}]
