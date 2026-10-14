@@ -146,6 +146,8 @@ def _execute_eval(
     output_dir,
     task_config,
     runner_config,
+    inference_only=False,
+    from_samples=None,
 ):
   """Executes the evaluation pipeline end-to-end via EvalPipeline.
 
@@ -164,16 +166,45 @@ def _execute_eval(
       output_dir: Path to folder saving serialized outputs and sample records.
       task_config: Optional tasks.yaml override file path.
       runner_config: Optional runners.yaml override file path.
+      inference_only: If True, generate predictions and write samples but skip
+        the metric stage (custom framework only).
+      from_samples: Path to a samples JSONL from a previous run; runs only the
+        metric stage without a runner (custom framework only).
   """
-  if not runner:
-    raise click.UsageError("Missing option '--runner'.")
+  parsed_eval_args = _parse_csv_args(eval_args)
+  if inference_only:
+    parsed_eval_args["inference_only"] = True
+  if from_samples:
+    parsed_eval_args["from_samples"] = from_samples
+  effective_inference_only = str(
+      parsed_eval_args.get("inference_only", "")
+  ).strip().lower() not in ("", "0", "false", "no", "off", "none")
+  effective_from_samples = parsed_eval_args.get("from_samples")
+  if effective_inference_only and effective_from_samples:
+    raise click.UsageError(
+        "'--inference-only' and '--from-samples' are mutually exclusive."
+    )
+  if (
+      effective_inference_only or effective_from_samples
+  ) and framework != "custom":
+    raise click.UsageError(
+        "'--inference-only' and '--from-samples' require --framework custom."
+    )
+  if not runner and not effective_from_samples:
+    raise click.UsageError(
+        "Missing option '--runner' (not needed with '--from-samples')."
+    )
   if not tasks:
     raise click.UsageError("Missing option '--tasks'.")
 
   _load_custom_tasks(custom_tasks_file)
 
-  model_config = _build_model_config(runner, runner_args, model_path, device)
-  parsed_eval_args = _parse_csv_args(eval_args)
+  # Scoring from samples needs no runner, hence no model config.
+  model_config = (
+      None
+      if effective_from_samples
+      else _build_model_config(runner, runner_args, model_path, device)
+  )
 
   # Initialize the EvalPipeline with parsed arguments.
   pipeline = eval_pipeline.EvalPipeline(
@@ -299,6 +330,24 @@ def _validate_limit(ctx, param, value):
     ),
 )
 @click.option(
+    "--inference-only",
+    is_flag=True,
+    default=False,
+    help=(
+        "Custom framework only: run inference and write samples, but skip the"
+        " metric stage. Pair with --from-samples to score later."
+    ),
+)
+@click.option(
+    "--from-samples",
+    default=None,
+    type=click.Path(dir_okay=False),
+    help=(
+        "Custom framework only: path to a samples JSONL from a previous run;"
+        " runs only the metric stage (no --runner needed)."
+    ),
+)
+@click.option(
     "--output-dir",
     type=click.Path(),
     default="/tmp/results/",
@@ -330,6 +379,8 @@ def cli(
     framework,
     custom_tasks_file,
     eval_args,
+    inference_only,
+    from_samples,
     output_dir,
     task_config,
     runner_config,
@@ -351,6 +402,8 @@ def cli(
         output_dir,
         task_config,
         runner_config,
+        inference_only=inference_only,
+        from_samples=from_samples,
     )
 
 
@@ -374,6 +427,8 @@ def run_pipeline(ctx):
       output_dir=parent_params.get("output_dir"),
       task_config=parent_params.get("task_config"),
       runner_config=parent_params.get("runner_config"),
+      inference_only=parent_params.get("inference_only", False),
+      from_samples=parent_params.get("from_samples"),
   )
 
 

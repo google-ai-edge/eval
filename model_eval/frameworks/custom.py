@@ -17,9 +17,11 @@
 from collections.abc import Iterable, Iterator
 import contextlib
 import itertools
+import json
 import math
+import os
 import sys
-from typing import Any
+from typing import Any, TypeVar
 
 from model_eval.custom_tasks import base as tasks_base
 from model_eval.custom_tasks import loaders
@@ -38,10 +40,14 @@ _SKIPPED_ERROR = "skipped: an earlier request failed"
 # Maximum number of response body characters kept in a recorded error.
 _MAX_ERROR_CHARS = 500
 
+_T = TypeVar("_T")
 
-def _apply_limit(
-    rows: Iterable[dict[str, Any]], limit: int | float
-) -> Iterator[dict[str, Any]]:
+# Framework-level eval args consumed here (not forwarded as task args).
+INFERENCE_ONLY_ARG = "inference_only"
+FROM_SAMPLES_ARG = "from_samples"
+
+
+def _apply_limit(rows: Iterable[_T], limit: int | float) -> Iterator[_T]:
   """Slices a dataset using an absolute count limit or a percentage fraction.
 
   An absolute limit is applied lazily, so rows past the limit are never
@@ -61,8 +67,8 @@ def _apply_limit(
 
 
 def _apply_samples(
-    rows: Iterable[dict[str, Any]], samples_val: Any, task_name: str
-) -> Iterator[dict[str, Any]]:
+    rows: Iterable[_T], samples_val: Any, task_name: str
+) -> Iterator[_T]:
   """Filters a dataset by keeping precise row indices or resolving range slices.
 
   Index lists, ranges ("start-end") and comma-separated indices are applied
@@ -126,12 +132,12 @@ def _apply_samples(
 
 
 def _select_rows(
-    rows: Iterable[tasks_base.DatasetRow],
+    rows: Iterable[_T],
     task_name: str,
     limit: int | float | None,
     sample_range: tuple[int, int] | None,
     samples: Any,
-) -> Iterator[tasks_base.DatasetRow]:
+) -> Iterator[_T]:
   """Validates slicing options and returns an iterator over selected rows."""
   if limit is not None and sample_range is not None:
     raise ValueError(
@@ -198,13 +204,85 @@ def _post_all(
   return responses, errors
 
 
+def _as_bool(value: Any) -> bool:
+  """Interprets eval-arg values such as `True`, `"true"` or `"1"`."""
+  if isinstance(value, str):
+    normalized = value.strip().lower()
+    if normalized in ("1", "true", "yes", "on"):
+      return True
+    if normalized in ("0", "false", "no", "off", ""):
+      return False
+    raise ValueError(f"Cannot interpret {value!r} as a boolean.")
+  return bool(value)
+
+
+def _open_text(path: str) -> Any:
+  """Opens `path` for reading; remote (e.g. CNS) paths go through gfile."""
+  if not os.path.exists(path):
+    raise FileNotFoundError(f"Samples file does not exist: {path}")
+  return open(path, "r", encoding="utf-8")
+
+
+def _load_samples_file(path: str) -> dict[str, list[dict[str, Any]]]:
+  """Loads a samples JSONL written by the pipeline, grouped by task name.
+
+  Args:
+    path: Path to a `run_<ts>_samples.jsonl` file.
+
+  Raises:
+    FileNotFoundError: If `path` does not exist.
+
+  Returns:
+    Mapping from task name to its sample records, in file order.
+  """
+  by_task: dict[str, list[dict[str, Any]]] = {}
+  with _open_text(path) as f:
+    for line in f:
+      line = line.strip()
+      if not line:
+        continue
+      rec = json.loads(line)
+      by_task.setdefault(str(rec.get("task", "")), []).append(rec)
+  return by_task
+
+
+def _run_metric_fn(
+    task: tasks_base.CustomTask,
+    evaluated: list[tuple[tasks_base.DatasetRow, list[Any], list[str | None]]],
+) -> dict[str, float]:
+  """Applies `task.metric_fn` to evaluated `(row, predictions, errors)`."""
+  return task.metric_fn(
+      (pred for _, pred, _ in evaluated),
+      (row["ground_truth"] for row, _, _ in evaluated),
+      (row for row, _, _ in evaluated),
+  )
+
+
+def _sample_outputs(
+    evaluated: list[tuple[tasks_base.DatasetRow, list[Any], list[str | None]]],
+) -> list[dict[str, Any]]:
+  """Builds per-sample output records (the samples JSONL schema)."""
+  outputs = []
+  for row, pred, errors in evaluated:
+    out: dict[str, Any] = {
+        "input": row["requests"],
+        "prediction": pred,
+        "errors": errors,
+        "ground_truth": row["ground_truth"],
+    }
+    if row.get("metadata") is not None:
+      out["metadata"] = row["metadata"]
+    outputs.append(out)
+  return outputs
+
+
 @registry.register_framework("custom")
 class CustomFramework(base.AbstractEvalFramework):
   """Framework driving custom tasks against a runner's HTTP endpoint."""
 
   def evaluate(
       self,
-      runner: runners_base.AbstractRunner,
+      runner: runners_base.AbstractRunner | None,
       tasks: list[str],
       limit: int | float | None = None,
       sample_range: tuple[int, int] | None = None,
@@ -216,8 +294,19 @@ class CustomFramework(base.AbstractEvalFramework):
     Each row's `requests` are POSTed as JSON bodies in order to the task's
     `endpoint` (joined to `runner.server_url`).
 
+    Two staged modes are supported through framework-level eval args:
+
+    * `inference_only=True`: requests are sent and per-sample outputs are
+      collected, but `metric_fn` is not run. The samples file written by the
+      pipeline then serves as a cache of model outputs.
+    * `from_samples=<path>`: no runner is used; rows, predictions and errors are
+      reloaded from a previously written samples JSONL and only `metric_fn`
+      runs. Remaining eval args override the cached `task_args` in each row's
+      metadata, so scoring can be re-run with different settings.
+
     Args:
-      runner: The target runner implementation responsible for server inference.
+      runner: The target runner implementation responsible for server inference,
+        or None when `from_samples` is set.
       tasks: A list of unique task names to look up and evaluate.
       limit: Optional limit on number of samples per task to generate.
       sample_range: Optional range of samples to evaluate.
@@ -233,17 +322,52 @@ class CustomFramework(base.AbstractEvalFramework):
     Returns:
       An EvalResults instance containing all aggregated task metrics and
       outputs. The per-sample outputs contain the keys 'input', 'prediction',
-      'errors', and 'ground_truth'.
+      'errors', 'ground_truth', and optional 'metadata' (plus 'sample_index'
+      when preserved from a re-scored samples file).
     """
     eval_params = self._from_unified_eval_args(
         limit, sample_range, batch_size, eval_args
     )
+    inference_only = _as_bool(
+        eval_params.eval_args.pop(INFERENCE_ONLY_ARG, False)
+    )
+    from_samples = eval_params.eval_args.pop(FROM_SAMPLES_ARG, None)
+    if inference_only and from_samples:
+      raise ValueError(
+          f"Cannot set both '{INFERENCE_ONLY_ARG}' and '{FROM_SAMPLES_ARG}'."
+      )
     samples = eval_params.eval_args.pop("samples", None)
-    task_args = eval_params.eval_args
-
     reg = tasks_registry.TaskRegistry.global_registry()
     all_results = {}
     all_samples = {}
+
+    if from_samples:
+      # Scoring-only stage: no runner or HTTP traffic is involved.
+      records_by_task = _load_samples_file(str(from_samples))
+      allow_single_task_fallback = len(tasks) == 1
+      for name in tasks:
+        task = reg.get_task(name)
+        all_results[name], all_samples[name] = self._score_samples(
+            task,
+            records_by_task,
+            limit=eval_params.limit,
+            sample_range=eval_params.sample_range,
+            samples=samples,
+            task_args=eval_params.eval_args,
+            allow_single_task_fallback=allow_single_task_fallback,
+        )
+      return base.EvalResults(
+          framework_type="custom",
+          aggregated_metrics=all_results,
+          per_sample_outputs=all_samples,
+          metadata={FROM_SAMPLES_ARG: str(from_samples)},
+      )
+
+    if runner is None:
+      raise ValueError(
+          f"A runner is required unless '{FROM_SAMPLES_ARG}' is provided."
+      )
+    task_args = eval_params.eval_args
     timeout_sec = runner.request_timeout_sec or _DEFAULT_REQUEST_TIMEOUT_SEC
     with httpx.Client(timeout=timeout_sec) as http_client:
       for name in tasks:
@@ -256,6 +380,7 @@ class CustomFramework(base.AbstractEvalFramework):
             sample_range=eval_params.sample_range,
             samples=samples,
             task_args=task_args,
+            inference_only=inference_only,
         )
     return base.EvalResults(
         framework_type="custom",
@@ -274,6 +399,7 @@ class CustomFramework(base.AbstractEvalFramework):
       sample_range: tuple[int, int] | None = None,
       samples: Any = None,
       task_args: tasks_base.TaskArgs | None = None,
+      inference_only: bool = False,
   ) -> tuple[dict[str, float], list[dict[str, Any]]]:
     """Executes a single custom evaluation task against `task.endpoint`.
 
@@ -286,13 +412,15 @@ class CustomFramework(base.AbstractEvalFramework):
       samples: Optional explicit sample indices or dictionary map.
       task_args: Task-specific arguments, merged on top of `runner.server_args`
         and forwarded to `task.dataset`.
+      inference_only: If True, skip `task.metric_fn` and return empty metrics.
 
     Raises:
       ValueError: If conflicting limit/sample options are provided.
 
     Returns:
       A tuple `(metrics, sample_outputs)` where each entry in `sample_outputs`
-      contains `'input'`, `'prediction'`, `'errors'`, and `'ground_truth'`.
+      contains `'input'`, `'prediction'`, `'errors'`, `'ground_truth'`, and
+      optional `'metadata'`.
     """
     url = f"{runner.server_url}/{task.endpoint}"
     evaluated: list[
@@ -315,21 +443,85 @@ class CustomFramework(base.AbstractEvalFramework):
         responses, errors = _post_all(http_client, url, row["requests"])
         evaluated.append((row, responses, errors))
 
-    result = task.metric_fn(
-        (pred for _, pred, _ in evaluated),
-        (row["ground_truth"] for row, _, _ in evaluated),
-        (row for row, _, _ in evaluated),
+    if inference_only:
+      result: dict[str, float] = {}
+    else:
+      result = _run_metric_fn(task, evaluated)
+    return result, _sample_outputs(evaluated)
+
+  def _score_samples(
+      self,
+      task: tasks_base.CustomTask,
+      records_by_task: dict[str, list[dict[str, Any]]],
+      *,
+      limit: int | float | None = None,
+      sample_range: tuple[int, int] | None = None,
+      samples: Any = None,
+      task_args: tasks_base.TaskArgs | None = None,
+      allow_single_task_fallback: bool = True,
+  ) -> tuple[dict[str, float], list[dict[str, Any]]]:
+    """Runs `task.metric_fn` over records reloaded from a samples file.
+
+    Args:
+      task: The CustomTask whose metric function is applied.
+      records_by_task: Sample records grouped by task name, as produced by
+        `_load_samples_file`.
+      limit: Optional limit on number of samples to score.
+      sample_range: Optional range of samples to score.
+      samples: Optional explicit sample indices or dictionary map.
+      task_args: Eval args that override the cached `task_args` in each row's
+        metadata (e.g. to re-score with a different metric configuration).
+      allow_single_task_fallback: Whether a single-task samples file may be
+        scored under a different task name when only one task is requested.
+
+    Raises:
+      ValueError: If the samples file has no records for the task.
+
+    Returns:
+      A tuple `(metrics, sample_outputs)` with the same shape as `_run_task`.
+    """
+    records = records_by_task.get(task.name)
+    if (
+        records is None
+        and allow_single_task_fallback
+        and len(records_by_task) == 1
+    ):
+      # A single-task samples file may be scored under a different task name.
+      records = next(iter(records_by_task.values()))
+    if not records:
+      raise ValueError(
+          f"No samples for task '{task.name}' in samples file; found tasks:"
+          f" {sorted(records_by_task)}"
+      )
+    selected_records = list(
+        _select_rows(records, task.name, limit, sample_range, samples)
     )
-    sample_outputs = [
-        {
-            "input": row["requests"],
-            "prediction": pred,
-            "errors": errors,
-            "ground_truth": row["ground_truth"],
+    overrides = dict(task_args or {})
+    evaluated: list[
+        tuple[tasks_base.DatasetRow, list[Any], list[str | None]]
+    ] = []
+    for rec in selected_records:
+      raw_metadata = rec.get("metadata")
+      metadata = dict(raw_metadata) if raw_metadata is not None else {}
+      if overrides:
+        metadata["task_args"] = {
+            **(metadata.get("task_args") or {}),
+            **overrides,
         }
-        for row, pred, errors in evaluated
-    ]
-    return result, sample_outputs
+      row: tasks_base.DatasetRow = {
+          "requests": rec.get("input") or [],
+          "ground_truth": rec.get("ground_truth"),
+      }
+      if raw_metadata is not None or metadata:
+        row["metadata"] = metadata
+      prediction: list[Any] = list(rec.get("prediction") or [])
+      errors: list[str | None] = list(rec.get("errors") or [])
+      evaluated.append((row, prediction, errors))
+    outputs = _sample_outputs(evaluated)
+    for rec, out in zip(selected_records, outputs):
+      if rec.get("sample_index") is not None:
+        out["sample_index"] = rec["sample_index"]
+    return _run_metric_fn(task, evaluated), outputs
 
   @classmethod
   def supported_task_ids(cls) -> list[str]:

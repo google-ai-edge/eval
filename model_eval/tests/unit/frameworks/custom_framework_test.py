@@ -252,6 +252,247 @@ class CustomFrameworkTest(absltest.TestCase):
     )
     self.assertEqual(res.aggregated_metrics["with_args"], {"n": 1.0})
 
+  def test_inference_only_skips_metric_fn_and_keeps_metadata(self):
+    rows = [
+        {"requests": [{"op": "a"}], "ground_truth": 1, "metadata": {"i": 0}},
+        {"requests": [{"op": "b"}], "ground_truth": 2, "metadata": {"i": 1}},
+    ]
+    metric_fn = mock.MagicMock(return_value={"n": 2.0})
+    task = tasks.CustomTask(
+        name="stage",
+        endpoint="op",
+        dataset=lambda _: iter(rows),
+        metric_fn=metric_fn,
+    )
+    registry = mock.MagicMock()
+    registry.get_task.return_value = task
+
+    def handler(request):
+      return httpx.Response(200, json={"echo": json.loads(request.content)})
+
+    with mock.patch.object(
+        custom.tasks_registry.TaskRegistry,
+        "global_registry",
+        return_value=registry,
+    ), mock.patch.object(
+        custom.httpx,
+        "Client",
+        return_value=httpx.Client(transport=httpx.MockTransport(handler)),
+    ):
+      res = custom.CustomFramework().evaluate(
+          _runner(),
+          ["stage"],
+          eval_args={"inference_only": True},
+      )
+    metric_fn.assert_not_called()
+    self.assertEqual(res.aggregated_metrics["stage"], {})
+    samples = res.per_sample_outputs["stage"]
+    self.assertLen(samples, 2)
+    self.assertEqual(samples[0]["prediction"], [{"echo": {"op": "a"}}])
+    self.assertEqual(samples[0]["metadata"], {"i": 0})
+
+  def test_from_samples_scores_without_runner_and_overrides_task_args(self):
+    path = self.create_tempfile().full_path
+    records = [
+        {
+            "task": "stage",
+            "sample_index": i,
+            "input": [{"op": "x"}],
+            "prediction": [{"v": i}],
+            "errors": [None],
+            "ground_truth": i,
+            "metadata": {"i": i, "task_args": {"metrics": "latency", "k": 1}},
+        }
+        for i in range(3)
+    ]
+    with open(path, "w") as f:
+      for rec in records:
+        f.write(json.dumps(rec) + "\n")
+    captured: dict[str, Any] = {}
+
+    def metric_fn(preds, gts, rs):
+      captured["preds"] = list(preds)
+      captured["gts"] = list(gts)
+      captured["rows"] = list(rs)
+      return {"n": float(len(captured["preds"]))}
+
+    dataset = mock.MagicMock()
+    task = tasks.CustomTask(
+        name="stage", endpoint="op", dataset=dataset, metric_fn=metric_fn
+    )
+    registry = mock.MagicMock()
+    registry.get_task.return_value = task
+    with mock.patch.object(
+        custom.tasks_registry.TaskRegistry,
+        "global_registry",
+        return_value=registry,
+    ):
+      res = custom.CustomFramework().evaluate(
+          None,
+          ["stage"],
+          sample_range=(1, 2),
+          eval_args={"from_samples": path, "metrics": "latency+wer"},
+      )
+    dataset.assert_not_called()  # No inference: the dataset is never built.
+    self.assertEqual(res.aggregated_metrics["stage"], {"n": 2.0})
+    self.assertEqual(res.metadata, {"from_samples": path})
+    self.assertEqual(captured["preds"], [[{"v": 1}], [{"v": 2}]])
+    self.assertEqual(captured["gts"], [1, 2])
+    row = captured["rows"][0]
+    self.assertEqual(row["requests"], [{"op": "x"}])
+    # Eval args given at scoring time override the cached task args.
+    self.assertEqual(
+        row["metadata"]["task_args"], {"metrics": "latency+wer", "k": 1}
+    )
+    self.assertEqual(res.per_sample_outputs["stage"][0]["metadata"]["i"], 1)
+    # Original sample_index from the input file is preserved in output samples.
+    self.assertEqual(
+        [s["sample_index"] for s in res.per_sample_outputs["stage"]], [1, 2]
+    )
+
+  def test_from_samples_omits_metadata_when_not_present_or_overridden(self):
+    path = self.create_tempfile(
+        content=json.dumps({
+            "task": "plain",
+            "sample_index": 7,
+            "input": [{"op": "x"}],
+            "prediction": [{"v": 1}],
+            "errors": [None],
+            "ground_truth": "gt",
+        })
+        + "\n"
+    ).full_path
+    captured_rows: list[Any] = []
+    task = tasks.CustomTask(
+        name="plain",
+        endpoint="op",
+        dataset=lambda _: iter([]),
+        metric_fn=lambda p, g, r: (captured_rows.extend(r) or {"ok": 1.0}),
+    )
+    registry = mock.MagicMock()
+    registry.get_task.return_value = task
+    with mock.patch.object(
+        custom.tasks_registry.TaskRegistry,
+        "global_registry",
+        return_value=registry,
+    ):
+      res = custom.CustomFramework().evaluate(
+          None, ["plain"], eval_args={"from_samples": path}
+      )
+    self.assertLen(captured_rows, 1)
+    self.assertNotIn("metadata", captured_rows[0])
+    self.assertNotIn("metadata", res.per_sample_outputs["plain"][0])
+    self.assertEqual(res.per_sample_outputs["plain"][0]["sample_index"], 7)
+
+  def test_from_samples_single_task_fallback_only_for_single_requested_task(
+      self,
+  ):
+    path = self.create_tempfile(
+        content=json.dumps({
+            "task": "t1",
+            "sample_index": 0,
+            "input": [{"op": "x"}],
+            "prediction": [{"v": 1}],
+            "errors": [None],
+            "ground_truth": "gt",
+        })
+        + "\n"
+    ).full_path
+    tasks_by_name = {
+        name: tasks.CustomTask(
+            name=name,
+            endpoint="op",
+            dataset=lambda _: iter([]),
+            metric_fn=lambda p, g, r: {"count": float(len(list(p)))},
+        )
+        for name in ("alias", "t1", "t2")
+    }
+    registry = mock.MagicMock()
+    registry.get_task.side_effect = tasks_by_name.__getitem__
+    with mock.patch.object(
+        custom.tasks_registry.TaskRegistry,
+        "global_registry",
+        return_value=registry,
+    ):
+      # Single requested task can score a single-task samples file under a
+      # different task name.
+      res = custom.CustomFramework().evaluate(
+          None, ["alias"], eval_args={"from_samples": path}
+      )
+      self.assertEqual(res.aggregated_metrics, {"alias": {"count": 1.0}})
+
+      # Multi-task request must not silently reuse t1's samples for t2.
+      with self.assertRaisesRegex(ValueError, "No samples for task 't2'"):
+        custom.CustomFramework().evaluate(
+            None, ["t1", "t2"], eval_args={"from_samples": path}
+        )
+
+  def test_as_bool_valid_and_invalid_values(self):
+    for truthy in (True, 1, "1", "true", "TRUE", " yes ", "on"):
+      self.assertTrue(custom._as_bool(truthy))
+    for falsy in (False, 0, None, "0", "false", "FALSE", " no ", "off", ""):
+      self.assertFalse(custom._as_bool(falsy))
+    with self.assertRaisesRegex(
+        ValueError, "Cannot interpret 'ture' as a boolean"
+    ):
+      custom._as_bool("ture")
+
+  def test_open_text_remote_cns_path(self):
+    import io
+
+    fake_gfile = mock.MagicMock()
+    fake_gfile.Exists.return_value = True
+    fake_gfile.Open.return_value = io.StringIO(
+        json.dumps({"task": "t", "prediction": [1]}) + "\n"
+    )
+    with mock.patch("importlib.import_module", return_value=fake_gfile):
+      by_task = custom._load_samples_file("/cns/cell/home/user/samples.jsonl")
+    self.assertEqual(by_task, {"t": [{"task": "t", "prediction": [1]}]})
+    fake_gfile.Exists.assert_called_once_with(
+        "/cns/cell/home/user/samples.jsonl"
+    )
+
+    fake_gfile.Exists.return_value = False
+    with mock.patch("importlib.import_module", return_value=fake_gfile):
+      with self.assertRaises(FileNotFoundError):
+        custom._load_samples_file("/cns/cell/home/user/missing.jsonl")
+
+  def test_from_samples_errors(self):
+    framework = custom.CustomFramework()
+    with self.assertRaisesRegex(ValueError, "Cannot set both"):
+      framework.evaluate(
+          None,
+          ["t"],
+          eval_args={"from_samples": "x", "inference_only": "true"},
+      )
+    with self.assertRaisesRegex(ValueError, "A runner is required"):
+      framework.evaluate(None, ["t"])
+    with self.assertRaises(FileNotFoundError):
+      framework.evaluate(
+          None, ["t"], eval_args={"from_samples": "/nonexistent.jsonl"}
+      )
+    path = self.create_tempfile(
+        content=json.dumps({"task": "other", "prediction": []})
+        + "\n"
+        + json.dumps({"task": "another", "prediction": []})
+        + "\n"
+    ).full_path
+    task = tasks.CustomTask(
+        name="t",
+        endpoint="op",
+        dataset=lambda _: iter([]),
+        metric_fn=lambda p, g, r: {},
+    )
+    registry = mock.MagicMock()
+    registry.get_task.return_value = task
+    with mock.patch.object(
+        custom.tasks_registry.TaskRegistry,
+        "global_registry",
+        return_value=registry,
+    ):
+      with self.assertRaisesRegex(ValueError, "No samples for task 't'"):
+        framework.evaluate(None, ["t"], eval_args={"from_samples": path})
+
   def test_run_task_rejects_task_args_with_file_dataset(self):
     path = self.create_tempfile(
         "data.jsonl", content='{"requests": [], "ground_truth": 1}\n'
