@@ -34,6 +34,18 @@ PredictionType = TypeVar("PredictionType")
 GroundTruthType = TypeVar("GroundTruthType")
 
 
+class RequestTelemetry(TypedDict, total=False):
+  """Per-request execution telemetry recorded by `CustomFramework`.
+
+  Attributes:
+    latency_sec: Client-observed wall-clock seconds spent on the HTTP request
+      (including network transport).
+  """
+
+  # Client-observed wall-clock seconds spent on the HTTP request.
+  latency_sec: float
+
+
 class DatasetRow(TypedDict, Generic[GroundTruthType]):
   """A dataset row with input requests, ground truth, and optional metadata."""
 
@@ -102,11 +114,20 @@ class CustomTask(Generic[PredictionType, GroundTruthType]):
       `task_args` holds the runner's `server_args` (e.g. `model_name` from
       `--runner-args` for `http-server`) merged with the task-specific
       `--eval-args` entries; `--eval-args` win on key collisions.
-    metric_fn: A function for computing evaluation metrics. Takes three parallel
-      iterators of equal length: the generated predictions (each a list of
-      per-request responses for that row), the expected ground truths, and the
-      corresponding full DatasetRow objects, in matching order. Returns a
-      dictionary mapping metric names to their computed values.
+    metric_fn: A function `metric_fn(preds, gts, rows, task_args)` for computing
+      evaluation metrics. Takes three parallel iterators of equal length—the
+      generated predictions (each a list of per-request responses for that row),
+      the expected ground truths, and the corresponding full DatasetRow objects,
+      in matching order—followed by the merged `task_args` dictionary
+      (`runner.server_args` beneath `--eval-args`). Each row's
+      `metadata["telemetry"]` holds a list of per-request `RequestTelemetry`
+      dicts (`{"latency_sec": ...}`, or `None` for requests skipped after an
+      earlier failure). Returns a dictionary mapping metric names to their
+      computed values.
+    sample_input_fn: Optional summary of a row's input for the per-sample
+      outputs. When set, `sample_input_fn(row)` is recorded as the sample's
+      `"input"` instead of the full `row["requests"]`; useful when requests
+      embed large payloads such as base64 audio or images.
   """
 
   name: str
@@ -117,9 +138,11 @@ class CustomTask(Generic[PredictionType, GroundTruthType]):
           Iterator[PredictionType],
           Iterator[GroundTruthType],
           Iterator[DatasetRow[GroundTruthType]],
+          TaskArgs,
       ],
       dict[str, Any],
   ]
+  sample_input_fn: Callable[[DatasetRow[GroundTruthType]], Any] | None = None
 
   def __post_init__(self) -> None:
     path = self.endpoint.strip("/") if isinstance(self.endpoint, str) else ""
