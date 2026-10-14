@@ -15,6 +15,7 @@
 """Export custom task layer modules."""
 
 from model_eval.custom_tasks import base
+from model_eval.custom_tasks import metrics
 from model_eval.custom_tasks import registry
 
 Requests = base.Requests
@@ -25,6 +26,19 @@ chat_request = base.chat_request
 chat_response_text = base.chat_response_text
 TaskRegistry = registry.TaskRegistry
 
+# Metrics re-exports.
+register_metric = metrics.register_metric
+get_metric = metrics.get_metric
+list_metrics = metrics.list_metrics
+clear_metrics = metrics.clear_metrics
+compose = metrics.compose
+
+# Normalizer re-exports.
+register_normalizer = metrics.register_normalizer
+get_normalizer = metrics.get_normalizer
+list_normalizers = metrics.list_normalizers
+clear_normalizers = metrics.clear_normalizers
+
 __all__ = [
     "Requests",
     "TaskArgs",
@@ -33,4 +47,13 @@ __all__ = [
     "chat_request",
     "chat_response_text",
     "TaskRegistry",
+    "register_metric",
+    "get_metric",
+    "list_metrics",
+    "clear_metrics",
+    "compose",
+    "register_normalizer",
+    "get_normalizer",
+    "list_normalizers",
+    "clear_normalizers",
 ]
