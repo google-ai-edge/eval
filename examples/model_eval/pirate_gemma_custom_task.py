@@ -97,8 +97,10 @@ def llm_judge_metric_fn(
     predictions: Iterator[list[dict[str, Any] | None]],
     ground_truths: Iterator[str],
     rows: Iterator[custom_tasks.DatasetRow],
+    task_args: custom_tasks.TaskArgs,
 ) -> dict[str, float]:
   """Uses Gemini to evaluate predictions on Pirate Persona and Content Relevance."""
+  del task_args  # Unused.
   api_key = os.environ.get("GEMINI_API_KEY")
   if not api_key:
     raise ValueError(

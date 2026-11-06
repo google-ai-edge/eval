@@ -28,7 +28,10 @@ class TaskRegistryTest(absltest.TestCase):
   def test_register_and_resolve(self):
     reg = tasks.TaskRegistry()
     task = tasks.CustomTask(
-        name="foo", endpoint="op", dataset="bar", metric_fn=lambda p, g, r: {}
+        name="foo",
+        endpoint="op",
+        dataset="bar",
+        metric_fn=lambda p, g, r, a: {},
     )
     reg.register(task)
     self.assertEqual(reg.get_task("foo"), task)
@@ -41,7 +44,10 @@ class TaskRegistryTest(absltest.TestCase):
   def test_get_all_tasks(self):
     reg = tasks.TaskRegistry()
     task = tasks.CustomTask(
-        name="foo", endpoint="op", dataset="bar", metric_fn=lambda p, g, r: {}
+        name="foo",
+        endpoint="op",
+        dataset="bar",
+        metric_fn=lambda p, g, r, a: {},
     )
     reg.register(task)
     self.assertEqual(reg.get_all_tasks(), ["foo"])

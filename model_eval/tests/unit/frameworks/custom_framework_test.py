@@ -41,7 +41,7 @@ class CustomFrameworkTest(absltest.TestCase):
         name="foo",
         endpoint="op",
         dataset=lambda _: iter([]),
-        metric_fn=lambda p, g, r: {},
+        metric_fn=lambda p, g, r, a: {},
     )
     registry = mock.MagicMock()
     registry.get_task.return_value = task
@@ -73,7 +73,7 @@ class CustomFrameworkTest(absltest.TestCase):
               name="t",
               endpoint="op",
               dataset=lambda _: iter([]),
-              metric_fn=lambda p, g, r: {},
+              metric_fn=lambda p, g, r, a: {},
           ),
           mock.MagicMock(),
           sample_range=(0, 10),
@@ -118,7 +118,8 @@ class CustomFrameworkTest(absltest.TestCase):
 
     captured = {}
 
-    def metric_fn(preds, gts, rs):
+    def metric_fn(preds, gts, rs, task_args):
+      del task_args
       captured["preds"] = list(preds)
       captured["gts"] = list(gts)
       captured["rows"] = list(rs)
@@ -149,7 +150,17 @@ class CustomFrameworkTest(absltest.TestCase):
     self.assertEqual(result, {"n": 2.0})
     self.assertEqual(captured["preds"], expected_preds)
     self.assertEqual(captured["gts"], [1, 2])
-    self.assertEqual(captured["rows"], rows)
+    # Rows reach metric_fn with per-request telemetry in their metadata; the
+    # dataset's own row objects are left untouched.
+    self.assertNotIn("metadata", rows[0])
+    for captured_row, row in zip(captured["rows"], rows):
+      self.assertEqual(captured_row["requests"], row["requests"])
+      self.assertEqual(captured_row["ground_truth"], row["ground_truth"])
+      telemetry = captured_row["metadata"]["telemetry"]
+      self.assertLen(telemetry, len(row["requests"]))
+      for entry in telemetry:
+        self.assertIsNotNone(entry)
+        self.assertGreaterEqual(entry["latency_sec"], 0.0)
     self.assertEqual(
         samples,
         [
@@ -157,15 +168,70 @@ class CustomFrameworkTest(absltest.TestCase):
                 "input": rows[0]["requests"],
                 "prediction": expected_preds[0],
                 "errors": [None, None],
+                "telemetry": captured["rows"][0]["metadata"]["telemetry"],
                 "ground_truth": 1,
             },
             {
                 "input": rows[1]["requests"],
                 "prediction": expected_preds[1],
                 "errors": [None],
+                "telemetry": captured["rows"][1]["metadata"]["telemetry"],
                 "ground_truth": 2,
             },
         ],
+    )
+
+  def test_run_task_uses_sample_input_fn_and_passes_task_args_to_metric_fn(
+      self,
+  ):
+    rows = [
+        {
+            "requests": [{"op": "a", "audio": "<large base64 blob>"}],
+            "ground_truth": "x",
+            "metadata": {"id": "utt-1"},
+        },
+    ]
+    captured = {}
+
+    def metric_fn(preds, gts, rs, task_args):
+      del gts
+      captured["rows"] = list(rs)
+      captured["task_args"] = task_args
+      return {"n": float(len(list(preds)))}
+
+    task = tasks.CustomTask(
+        name="summarised",
+        endpoint="op",
+        dataset=lambda _: iter(rows),
+        metric_fn=metric_fn,
+        sample_input_fn=lambda row: {
+            "id": row["metadata"]["id"],
+            "op": row["requests"][0]["op"],
+        },
+    )
+    framework = custom.CustomFramework()
+    with httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"ok": True})
+        )
+    ) as client:
+      _, samples = framework._run_task(
+          _runner(server_args={"model_name": "gemma"}),
+          task,
+          client,
+          task_args={"manifest_dir": "/tmp/m"},
+      )
+    # The sample input is the summary, not the request payloads.
+    self.assertEqual(samples[0]["input"], {"id": "utt-1", "op": "a"})
+    # Existing metadata is preserved alongside the injected telemetry.
+    self.assertEqual(captured["rows"][0]["metadata"]["id"], "utt-1")
+    self.assertLen(captured["rows"][0]["metadata"]["telemetry"], 1)
+    self.assertGreaterEqual(
+        captured["rows"][0]["metadata"]["telemetry"][0]["latency_sec"], 0.0
+    )
+    # metric_fn receives the same merged args as the dataset.
+    self.assertEqual(
+        captured["task_args"], {"model_name": "gemma", "manifest_dir": "/tmp/m"}
     )
 
   def test_post_all_records_failures_and_skips_the_rest(self):
@@ -186,7 +252,7 @@ class CustomFrameworkTest(absltest.TestCase):
           ("network", r"^ConnectError: refused$"),
       ):
         with self.subTest(failing=failing):
-          responses, errors = custom._post_all(
+          responses, errors, telemetry = custom._post_all(
               client,
               "http://dummy/op",
               [{"op": "first"}, {"op": failing}, {"op": "after"}],
@@ -195,13 +261,20 @@ class CustomFrameworkTest(absltest.TestCase):
           self.assertIsNone(errors[0])
           self.assertRegex(errors[1], error_pattern)
           self.assertEqual(errors[2], "skipped: an earlier request failed")
+          # Attempted requests record telemetry, even when they fail; skipped
+          # ones have None.
+          self.assertIsNotNone(telemetry[0])
+          self.assertGreaterEqual(telemetry[0]["latency_sec"], 0.0)
+          self.assertIsNotNone(telemetry[1])
+          self.assertGreaterEqual(telemetry[1]["latency_sec"], 0.0)
+          self.assertIsNone(telemetry[2])
 
   def test_evaluate_uses_runner_timeout(self):
     task = tasks.CustomTask(
         name="timeout",
         endpoint="op",
         dataset=lambda _: iter([]),
-        metric_fn=lambda p, g, r: {},
+        metric_fn=lambda p, g, r, a: {},
     )
     registry = mock.MagicMock()
     registry.get_task.return_value = task
@@ -225,7 +298,7 @@ class CustomFrameworkTest(absltest.TestCase):
         name="with_args",
         endpoint="/op/",
         dataset=dataset,
-        metric_fn=lambda p, g, r: {"n": float(len(list(p)))},
+        metric_fn=lambda p, g, r, a: {"n": float(len(list(p)))},
     )
     registry = mock.MagicMock()
     registry.get_task.return_value = task
@@ -260,7 +333,7 @@ class CustomFrameworkTest(absltest.TestCase):
         name="file_with_args",
         endpoint="op",
         dataset=path,
-        metric_fn=lambda p, g, r: {},
+        metric_fn=lambda p, g, r, a: {},
     )
     with self.assertRaisesRegex(ValueError, "file datasets do not accept"):
       custom.CustomFramework()._run_task(
@@ -269,13 +342,21 @@ class CustomFrameworkTest(absltest.TestCase):
 
   def test_run_task_file_dataset_ignores_server_args(self):
     path = self.create_tempfile(
-        "data.jsonl", content='{"requests": [], "ground_truth": 1}\n'
+        "data.jsonl",
+        content='{"requests": [], "ground_truth": 1, "metadata": null}\n',
     ).full_path
+    captured = {}
+
+    def metric_fn(p, g, r, a):
+      del g, r
+      captured["task_args"] = a
+      return {"n": float(len(list(p)))}
+
     task = tasks.CustomTask(
         name="file_no_args",
         endpoint="op",
         dataset=path,
-        metric_fn=lambda p, g, r: {"n": float(len(list(p)))},
+        metric_fn=metric_fn,
     )
     metrics, _ = custom.CustomFramework()._run_task(
         _runner(server_args={"model_name": "gemma"}),
@@ -283,6 +364,7 @@ class CustomFrameworkTest(absltest.TestCase):
         mock.MagicMock(),
     )
     self.assertEqual(metrics, {"n": 1.0})
+    self.assertEqual(captured["task_args"], {"model_name": "gemma"})
 
   def test_apply_limit(self):
     rows = [{"id": i} for i in range(10)]
@@ -359,7 +441,7 @@ class CustomFrameworkTest(absltest.TestCase):
         name="foo",
         endpoint="op",
         dataset=lambda _: iter([]),
-        metric_fn=lambda p, g, r: {},
+        metric_fn=lambda p, g, r, a: {},
     )
     registry = mock.MagicMock()
     registry.get_task.return_value = task
@@ -382,7 +464,7 @@ class CustomFrameworkTest(absltest.TestCase):
         name="t",
         endpoint="op",
         dataset=lambda _: iter([]),
-        metric_fn=lambda p, g, r: {},
+        metric_fn=lambda p, g, r, a: {},
     )
     for kwargs, pattern in (
         ({"limit": 1, "sample_range": (0, 1)}, "'limit' or 'sample_range'"),
@@ -398,15 +480,18 @@ class CustomFrameworkTest(absltest.TestCase):
         name="sliced",
         endpoint="op",
         dataset=lambda _: iter(rows),
-        metric_fn=lambda p, g, r: {"gts": list(g), "rows": list(r)},
+        metric_fn=lambda p, g, r, a: {
+            "gts": list(g),
+            "row_gts": [row["ground_truth"] for row in r],
+        },
     )
     framework = custom.CustomFramework()
     limited, _ = framework._run_task(_runner(), task, mock.MagicMock(), limit=2)
     ranged, _ = framework._run_task(
         _runner(), task, mock.MagicMock(), sample_range=(1, 3)
     )
-    self.assertEqual(limited, {"gts": [0, 1], "rows": rows[:2]})
-    self.assertEqual(ranged, {"gts": [1, 2, 3], "rows": rows[1:4]})
+    self.assertEqual(limited, {"gts": [0, 1], "row_gts": [0, 1]})
+    self.assertEqual(ranged, {"gts": [1, 2, 3], "row_gts": [1, 2, 3]})
 
   def test_run_task_streams_dataset_and_closes_it(self):
     events = []
@@ -428,7 +513,7 @@ class CustomFrameworkTest(absltest.TestCase):
         name="streamed",
         endpoint="op",
         dataset=dataset,
-        metric_fn=lambda p, g, r: {"preds": [r[0] for r in p]},
+        metric_fn=lambda p, g, r, a: {"preds": [r[0] for r in p]},
     )
     framework = custom.CustomFramework()
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
