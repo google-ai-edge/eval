@@ -110,9 +110,7 @@ class EvalPipelineTest(absltest.TestCase):
             output_dir=self.output_dir,
         )
 
-  @mock.patch(
-      "model_eval.api.pipeline._load_runner_allowlist"
-  )
+  @mock.patch("model_eval.api.pipeline._load_runner_allowlist")
   @mock.patch("model_eval.api.pipeline._load_task_allowlist")
   def test_runner_resolution_falls_back_to_model(
       self, mock_load_task, mock_load_runner
@@ -143,9 +141,7 @@ class EvalPipelineTest(absltest.TestCase):
           output_dir=self.output_dir,
       )
 
-  @mock.patch(
-      "model_eval.api.pipeline._load_runner_allowlist"
-  )
+  @mock.patch("model_eval.api.pipeline._load_runner_allowlist")
   @mock.patch("model_eval.api.pipeline._load_task_allowlist")
   def test_known_task_passes_validation(self, mock_load_task, mock_load_runner):
     """Verifies that a known task passes validation."""
@@ -160,9 +156,7 @@ class EvalPipelineTest(absltest.TestCase):
     )
     self.assertEqual(p._tasks, ["mmlu"])
 
-  @mock.patch(
-      "model_eval.api.pipeline._load_runner_allowlist"
-  )
+  @mock.patch("model_eval.api.pipeline._load_runner_allowlist")
   def test_custom_task_config(self, mock_load_runner):
     """Verifies that custom task configurations are correctly loaded and validated."""
     mock_load_runner.return_value = ["native"]
@@ -211,9 +205,7 @@ class EvalPipelineTest(absltest.TestCase):
           output_dir=self.output_dir,
       )
 
-  @mock.patch(
-      "model_eval.api.pipeline._load_runner_allowlist"
-  )
+  @mock.patch("model_eval.api.pipeline._load_runner_allowlist")
   def test_validate_custom_framework_raises_with_native_config(
       self, mock_load_runner
   ):
@@ -228,6 +220,129 @@ class EvalPipelineTest(absltest.TestCase):
           framework=framework_base.FrameworkType.CUSTOM,
           output_dir=self.output_dir,
       )
+
+  @mock.patch("model_eval.api.pipeline._load_task_allowlist")
+  @mock.patch("model_eval.frameworks.registry.get_framework")
+  def test_run_from_samples_without_model(self, mock_get_framework, mock_load):
+    """Verifies the scoring-only path calls the framework with runner=None."""
+    mock_load.return_value = ["t"]
+    mock_framework = mock.MagicMock()
+    mock_get_framework.return_value = mock_framework
+    mock_framework.evaluate.return_value = framework_base.EvalResults(
+        framework_type="custom",
+        aggregated_metrics={"t": {"wer": 0.1}},
+        per_sample_outputs={},
+    )
+    p = pipeline.EvalPipeline(
+        model=None,
+        framework=framework_base.FrameworkType.CUSTOM,
+        tasks=("t",),
+        output_dir=self.output_dir,
+        eval_args={
+            "score_from_samples": "/tmp/samples.jsonl",
+            "metrics": "wer",
+        },
+    )
+    results = p.run()
+    self.assertEqual(results.aggregated_metrics, {"t": {"wer": 0.1}})
+    mock_framework.evaluate.assert_called_once()
+    self.assertIsNone(mock_framework.evaluate.call_args.kwargs["runner"])
+    self.assertEqual(
+        mock_framework.evaluate.call_args.kwargs["eval_args"],
+        {"score_from_samples": "/tmp/samples.jsonl", "metrics": "wer"},
+    )
+
+  @mock.patch("model_eval.api.pipeline._load_task_allowlist")
+  def test_validate_model_none_requires_custom_from_samples(self, mock_load):
+    mock_load.return_value = ["t"]
+    with self.assertRaisesRegex(
+        ValueError, "only supported with framework='custom'"
+    ):
+      pipeline.EvalPipeline(
+          model=None,
+          framework=framework_base.FrameworkType.LM_EVAL,
+          tasks=("t",),
+          output_dir=self.output_dir,
+          eval_args={"score_from_samples": "x"},
+      )
+    with self.assertRaisesRegex(ValueError, "required unless framework"):
+      pipeline.EvalPipeline(
+          model=None,
+          framework=framework_base.FrameworkType.LM_EVAL,
+          tasks=("t",),
+          output_dir=self.output_dir,
+      )
+    with self.assertRaisesRegex(ValueError, "score_from_samples"):
+      pipeline.EvalPipeline(
+          model=None,
+          framework=framework_base.FrameworkType.CUSTOM,
+          tasks=("t",),
+          output_dir=self.output_dir,
+      )
+    with self.assertRaisesRegex(ValueError, "Cannot set both"):
+      pipeline.EvalPipeline(
+          model=None,
+          framework=framework_base.FrameworkType.CUSTOM,
+          tasks=("t",),
+          output_dir=self.output_dir,
+          eval_args={"score_from_samples": "x", "inference_only": True},
+      )
+
+  @mock.patch("model_eval.api.pipeline._load_runner_allowlist")
+  @mock.patch("model_eval.api.pipeline._load_task_allowlist")
+  @mock.patch("model_eval.runners.registry.create_runner")
+  @mock.patch("model_eval.frameworks.registry.get_framework")
+  def test_validate_and_run_staged_args_with_model_provided(
+      self,
+      mock_get_framework,
+      mock_create_runner,
+      mock_load_task,
+      mock_load_runner,
+  ):
+    mock_load_task.return_value = ["t"]
+    mock_load_runner.return_value = ["litert-lm"]
+    runner_cfg = litert_lm.LiteRtLmRunner.Config(
+        runner_type="litert-lm", model_path="test_model"
+    )
+    with self.assertRaisesRegex(ValueError, "Cannot set both"):
+      pipeline.EvalPipeline(
+          model=runner_cfg,
+          framework=framework_base.FrameworkType.CUSTOM,
+          tasks=("t",),
+          output_dir=self.output_dir,
+          eval_args={"score_from_samples": "x", "inference_only": True},
+      )
+    with self.assertRaisesRegex(
+        ValueError, "only supported with framework='custom'"
+    ):
+      pipeline.EvalPipeline(
+          model=runner_cfg,
+          framework=framework_base.FrameworkType.LM_EVAL,
+          tasks=("t",),
+          output_dir=self.output_dir,
+          eval_args={"inference_only": True},
+      )
+
+    # When both model and score_from_samples are supplied, run() uses the
+    # scoring-only path without creating or starting the runner.
+    mock_framework = mock.MagicMock()
+    mock_get_framework.return_value = mock_framework
+    mock_framework.evaluate.return_value = framework_base.EvalResults(
+        framework_type="custom",
+        aggregated_metrics={"t": {"wer": 0.2}},
+        per_sample_outputs={},
+    )
+    p = pipeline.EvalPipeline(
+        model=runner_cfg,
+        framework=framework_base.FrameworkType.CUSTOM,
+        tasks=("t",),
+        output_dir=self.output_dir,
+        eval_args={"score_from_samples": "/tmp/samples.jsonl"},
+    )
+    res = p.run()
+    self.assertEqual(res.aggregated_metrics, {"t": {"wer": 0.2}})
+    mock_create_runner.assert_not_called()
+    self.assertIsNone(mock_framework.evaluate.call_args.kwargs["runner"])
 
   @mock.patch("model_eval.api.pipeline._load_task_allowlist")
   @mock.patch("model_eval.runners.registry.create_runner")
@@ -408,9 +523,7 @@ class EvalPipelineTest(absltest.TestCase):
   @mock.patch(
       "model_eval.custom_tasks.registry.TaskRegistry.global_registry"
   )
-  @mock.patch(
-      "model_eval.api.pipeline._load_runner_allowlist"
-  )
+  @mock.patch("model_eval.api.pipeline._load_runner_allowlist")
   def test_custom_framework_tasks_allowlist(
       self, mock_load_runner, mock_global_registry
   ):
@@ -477,9 +590,7 @@ class EvalPipelineTest(absltest.TestCase):
 
   @mock.patch("model_eval.api.pipeline._load_task_allowlist")
   @mock.patch("model_eval.frameworks.registry.get_framework")
-  def test_run_native_produces_jsonl_files(
-      self, mock_get_framework, mock_load
-  ):
+  def test_run_native_produces_jsonl_files(self, mock_get_framework, mock_load):
     """Verifies that running the native path produces metrics and samples JSONL files."""
     mock_load.return_value = ["example_task"]
     mock_framework = mock.MagicMock()
@@ -538,9 +649,7 @@ class EvalPipelineTest(absltest.TestCase):
       self.assertEqual(data["doc"], "test native")
       self.assertEqual(data["res"], "B")
 
-  @mock.patch(
-      "model_eval.api.pipeline._load_runner_allowlist"
-  )
+  @mock.patch("model_eval.api.pipeline._load_runner_allowlist")
   @mock.patch("model_eval.api.pipeline._load_task_allowlist")
   def test_runner_resolution_falls_back_to_native(
       self, mock_load_task, mock_load_runner
@@ -560,9 +669,7 @@ class EvalPipelineTest(absltest.TestCase):
     )
     self.assertEqual(p._tasks, ["mmlu"])
 
-  @mock.patch(
-      "model_eval.api.pipeline._load_runner_allowlist"
-  )
+  @mock.patch("model_eval.api.pipeline._load_runner_allowlist")
   @mock.patch("model_eval.api.pipeline._load_task_allowlist")
   def test_constructor_empty_tasks(self, mock_load_task, mock_load_runner):
     """Verifies that the pipeline can be initialized with empty tasks list."""

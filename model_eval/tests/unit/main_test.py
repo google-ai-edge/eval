@@ -14,6 +14,8 @@
 
 """Unit tests for the CLI module."""
 
+import os
+import tempfile
 import unittest
 from unittest import mock
 
@@ -27,9 +29,7 @@ from click import testing
 class MainTest(parameterized.TestCase):
 
   @parameterized.parameters((True,), (False,))
-  @mock.patch(
-      "model_eval.cli.main.eval_pipeline.EvalPipeline"
-  )
+  @mock.patch("model_eval.cli.main.eval_pipeline.EvalPipeline")
   def test_main_parses_comma_separated_tasks(
       self, include_eval, mock_pipeline_cls
   ):
@@ -71,6 +71,157 @@ class MainTest(parameterized.TestCase):
     self.assertEqual(kwargs["tasks"], ("mmlu", "gsm8k", "bbh"))
     mock_pipeline.run.assert_called_once()
 
+  @mock.patch("model_eval.cli.main.eval_pipeline.EvalPipeline")
+  def test_from_samples_runs_without_runner(self, mock_pipeline_cls):
+    mock_pipeline = mock.MagicMock()
+    mock_pipeline_cls.return_value = mock_pipeline
+    mock_pipeline.run.return_value.aggregated_metrics = {}
+    with tempfile.TemporaryDirectory() as temp_dir:
+      samples = os.path.join(temp_dir, "samples.jsonl")
+      open(samples, "w").close()
+      result = testing.CliRunner().invoke(
+          main.cli,
+          [
+              "--framework",
+              "custom",
+              "--tasks",
+              "t",
+              "--score-from-samples",
+              samples,
+              "--eval-args",
+              "metrics=wer",
+          ],
+      )
+    self.assertEqual(result.exit_code, 0, result.output)
+    _, kwargs = mock_pipeline_cls.call_args
+    self.assertIsNone(kwargs["model"])
+    self.assertEqual(
+        kwargs["eval_args"], {"metrics": "wer", "score_from_samples": samples}
+    )
+
+  @mock.patch("model_eval.cli.main.eval_pipeline.EvalPipeline")
+  def test_from_samples_accepts_remote_cns_path_and_eval_args(
+      self, mock_pipeline_cls
+  ):
+    mock_pipeline = mock.MagicMock()
+    mock_pipeline_cls.return_value = mock_pipeline
+    mock_pipeline.run.return_value.aggregated_metrics = {}
+    cns_path = "/cns/cell/home/user/run_123_samples.jsonl"
+    result = testing.CliRunner().invoke(
+        main.cli,
+        [
+            "--framework",
+            "custom",
+            "--tasks",
+            "t",
+            "--score-from-samples",
+            cns_path,
+        ],
+    )
+    self.assertEqual(result.exit_code, 0, result.output)
+    _, kwargs = mock_pipeline_cls.call_args
+    self.assertIsNone(kwargs["model"])
+    self.assertEqual(kwargs["eval_args"], {"score_from_samples": cns_path})
+
+    mock_pipeline_cls.reset_mock()
+    result_via_eval_args = testing.CliRunner().invoke(
+        main.cli,
+        [
+            "--framework",
+            "custom",
+            "--tasks",
+            "t",
+            "--eval-args",
+            f"score_from_samples={cns_path},metrics=wer",
+        ],
+    )
+    self.assertEqual(
+        result_via_eval_args.exit_code, 0, result_via_eval_args.output
+    )
+    _, kwargs = mock_pipeline_cls.call_args
+    self.assertIsNone(kwargs["model"])
+    self.assertEqual(
+        kwargs["eval_args"], {"score_from_samples": cns_path, "metrics": "wer"}
+    )
+
+  @mock.patch("model_eval.cli.main.eval_pipeline.EvalPipeline")
+  def test_inference_only_sets_eval_arg(self, mock_pipeline_cls):
+    mock_pipeline = mock.MagicMock()
+    mock_pipeline_cls.return_value = mock_pipeline
+    mock_pipeline.run.return_value.aggregated_metrics = {}
+    result = testing.CliRunner().invoke(
+        main.cli,
+        [
+            "--runner",
+            "http-server",
+            "--runner-args",
+            "server_url=http://h:1,endpoints=op",
+            "--framework",
+            "custom",
+            "--tasks",
+            "t",
+            "--inference-only",
+            "--eval-args",
+            "endpoint=op",
+        ],
+    )
+    self.assertEqual(result.exit_code, 0, repr(result.exception))
+    _, kwargs = mock_pipeline_cls.call_args
+    self.assertEqual(
+        kwargs["eval_args"], {"endpoint": "op", "inference_only": True}
+    )
+
+  def test_staging_flags_usage_errors(self):
+    runner = testing.CliRunner()
+    with tempfile.TemporaryDirectory() as temp_dir:
+      samples = os.path.join(temp_dir, "samples.jsonl")
+      open(samples, "w").close()
+      result = runner.invoke(
+          main.cli,
+          [
+              "--framework",
+              "custom",
+              "--tasks",
+              "t",
+              "--score-from-samples",
+              samples,
+              "--inference-only",
+          ],
+      )
+      self.assertNotEqual(result.exit_code, 0)
+      self.assertIn("mutually exclusive", result.output)
+      result = runner.invoke(
+          main.cli,
+          [
+              "--framework",
+              "lm-eval",
+              "--tasks",
+              "t",
+              "--score-from-samples",
+              samples,
+          ],
+      )
+      self.assertNotEqual(result.exit_code, 0)
+      self.assertIn("require --framework custom", result.output)
+    result = runner.invoke(
+        main.cli,
+        [
+            "--framework",
+            "lm-eval",
+            "--runner",
+            "litert-lm",
+            "--tasks",
+            "t",
+            "--eval-args",
+            "inference_only=true",
+        ],
+    )
+    self.assertNotEqual(result.exit_code, 0)
+    self.assertIn("require --framework custom", result.output)
+    result = runner.invoke(main.cli, ["--framework", "custom", "--tasks", "t"])
+    self.assertNotEqual(result.exit_code, 0)
+    self.assertIn("Missing option '--runner'", result.output)
+
   def test_parse_csv_args_parses_json_values(self):
     self.assertEqual(
         main._parse_csv_args('limit=10,extra={"a": 1}'),
@@ -103,9 +254,7 @@ class MainTest(parameterized.TestCase):
     self.assertEqual(res, {"data": [{"a": 1}, {"b": 2}]})
 
   @mock.patch("model_eval.cli.main.importlib.import_module")
-  @mock.patch(
-      "model_eval.cli.main.eval_pipeline.EvalPipeline"
-  )
+  @mock.patch("model_eval.cli.main.eval_pipeline.EvalPipeline")
   def test_custom_tasks_file_triggers_import(
       self, mock_pipeline_cls, mock_import
   ):
@@ -162,7 +311,9 @@ class MainTest(parameterized.TestCase):
 
   @mock.patch("sys.platform", "darwin")
   @mock.patch("multiprocessing.set_start_method")
-  def test_multiprocessing_set_start_method_fork_on_mac(self, mock_set_start_method):
+  def test_multiprocessing_set_start_method_fork_on_mac(
+      self, mock_set_start_method
+  ):
     import importlib
     # Reload main module to run module-level initialization code
     importlib.reload(main)
@@ -170,8 +321,11 @@ class MainTest(parameterized.TestCase):
 
   @mock.patch("sys.platform", "linux")
   @mock.patch("multiprocessing.set_start_method")
-  def test_multiprocessing_set_start_method_default_on_non_mac(self, mock_set_start_method):
+  def test_multiprocessing_set_start_method_default_on_non_mac(
+      self, mock_set_start_method
+  ):
     import importlib
+
     importlib.reload(main)
     mock_set_start_method.assert_not_called()
 

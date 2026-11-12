@@ -27,6 +27,7 @@
   - [2. Task Definition](#2-task-definition)
   - [3. Run Custom Evaluation](#3-run-custom-evaluation)
   - [4. Outputs, Telemetry, and Task Hooks](#4-outputs-telemetry-and-task-hooks)
+  - [5. Staged Execution](#5-staged-execution)
 - [🔍 Discovery Commands](#-discovery-commands)
 - [⚖️ Dataset Licensing and Terms of Use](#️-dataset-licensing-and-terms-of-use)
 
@@ -441,8 +442,9 @@ ai-edge-eval \
    `--runner-args "...,model_name=gemma-4-E2B-it"` for `http-server`; local
    runners such as `litert-lm` have none), and
 2. the `--eval-args` entries the framework does not consume itself (it consumes
-   `limit`, `batch_size`, and `samples`), so a task can take its own
-   configuration, e.g. `--eval-args split=dev`.
+   `limit`, `batch_size`, `samples`, `inference_only`, and
+   `score_from_samples`), so a task can take its own configuration, e.g.
+   `--eval-args split=dev`.
 
 On a key collision `--eval-args` win. A chat task typically reads
 `task_args.get("model_name")` and passes it to
@@ -455,8 +457,8 @@ Each evaluated row produces one per-sample output with the keys `input`,
 `prediction` (the list of decoded responses, one per request), `errors` (one
 entry per request, `None` on success), `telemetry` (one `RequestTelemetry` dict
 `{"latency_sec": ...}` per request with client-observed wall-clock seconds, or
-`None` for requests skipped after an earlier failure in the same row), and
-`ground_truth`.
+`None` for requests skipped after an earlier failure in the same row),
+`ground_truth`, and optional `metadata`.
 
 The framework also passes the per-request telemetry to `metric_fn` through each
 row's `metadata["telemetry"]`, so a task can compute throughput metrics (e.g. an
@@ -473,6 +475,40 @@ Two `CustomTask` hooks keep large or configurable tasks manageable:
   positional argument (e.g. `model_name`, or an output directory passed via
   `--eval-args`).
 
+### 5. Staged Execution
+
+For custom tasks that pair fast on-device inference with slow or offline
+scoring, you can decouple inference from metric calculation into two stages:
+
+1. **Stage 1 — Inference only (`--inference-only`)**: Sends requests to the
+   runner and saves predictions, telemetry, and row metadata to
+   `<output_dir>/run_<ts>_samples.jsonl`, skipping `metric_fn`:
+
+   ```bash
+   ai-edge-eval \
+         --runner http-server \
+         --runner-args "server_url=http://<address>:<port>" \
+         --tasks my_custom_qa \
+         --framework custom \
+         --custom-tasks-file register_custom_tasks.py \
+         --inference-only \
+         --output-dir your_result_directory
+   ```
+
+2. **Stage 2 — Score from cached samples (`--score-from-samples`)**: Reloads
+   rows, predictions, errors, and telemetry from a previously written
+   `samples.jsonl` and runs `metric_fn` without starting a runner. Any
+   `--eval-args` passed at scoring time override the cached `task_args` in each
+   row's metadata:
+
+   ```bash
+   ai-edge-eval \
+         --tasks my_custom_qa \
+         --framework custom \
+         --custom-tasks-file register_custom_tasks.py \
+         --score-from-samples your_result_directory/run_<ts>_samples.jsonl \
+         --output-dir your_result_directory
+   ```
 ---
 
 ## 🔍 Discovery Commands
