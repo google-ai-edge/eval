@@ -14,7 +14,7 @@
 
 """Custom evaluation framework implementation."""
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 import contextlib
 import itertools
 import json
@@ -24,11 +24,13 @@ import sys
 import time
 from typing import Any, TypeVar, cast
 
+from absl import logging
 from model_eval.custom_tasks import base as tasks_base
 from model_eval.custom_tasks import loaders
 from model_eval.custom_tasks import registry as tasks_registry
 from model_eval.frameworks import base
 from model_eval.frameworks import registry
+from model_eval.frameworks import utils as framework_utils
 from model_eval.runners import base as runners_base
 from model_eval.utils import introspection
 import httpx
@@ -238,20 +240,11 @@ def _with_telemetry(
   return cast(tasks_base.DatasetRow, copied)
 
 
-def _as_bool(value: Any) -> bool:
-  """Interprets eval-arg values such as `True`, `"true"` or `"1"`."""
-  if isinstance(value, str):
-    normalized = value.strip().lower()
-    if normalized in ("1", "true", "yes", "on"):
-      return True
-    if normalized in ("0", "false", "no", "off", ""):
-      return False
-    raise ValueError(f"Cannot interpret {value!r} as a boolean.")
-  return bool(value)
+_as_bool = framework_utils.parse_bool
 
 
 def _open_text(path: str) -> Any:
-  """Opens `path` for reading; remote (e.g. CNS) paths go through gfile."""
+  """Opens `path` for reading; remote (e.g. CNS, GCS) paths go through gfile."""
   if not os.path.exists(path):
     raise FileNotFoundError(f"Samples file does not exist: {path}")
   return open(path, "r", encoding="utf-8")
@@ -280,6 +273,16 @@ def _load_samples_file(path: str) -> dict[str, list[dict[str, Any]]]:
   return by_task
 
 
+def _extract_saved_task_args(
+    records: list[dict[str, Any]],
+) -> tasks_base.TaskArgs:
+  """Returns the `task_args` saved at the top level of sample records."""
+  if not records:
+    return {}
+  saved = records[0].get("task_args")
+  return dict(saved) if isinstance(saved, Mapping) else {}
+
+
 _EvaluatedRow = tuple[
     tasks_base.DatasetRow,
     list[Any],
@@ -294,7 +297,7 @@ def _run_metric_fn(
     task: tasks_base.CustomTask,
     evaluated: list[_EvaluatedRow],
     task_args: tasks_base.TaskArgs,
-) -> dict[str, float]:
+) -> dict[str, Any]:
   """Applies `task.metric_fn` to evaluated rows and `task_args`."""
   return task.metric_fn(
       (pred for _, pred, _, _, _, _ in evaluated),
@@ -306,6 +309,7 @@ def _run_metric_fn(
 
 def _sample_outputs(
     evaluated: list[_EvaluatedRow],
+    task_args: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
   """Builds per-sample output records (the samples JSONL schema)."""
   outputs = []
@@ -320,6 +324,8 @@ def _sample_outputs(
     out["ground_truth"] = row["ground_truth"]
     if raw_metadata is not None:
       out["metadata"] = raw_metadata
+    if task_args:
+      out["task_args"] = dict(task_args)
     outputs.append(out)
   return outputs
 
@@ -344,13 +350,15 @@ class CustomFramework(base.AbstractEvalFramework):
 
     Two staged modes are supported through framework-level eval args:
 
-    * `inference_only=True`: requests are sent and per-sample outputs are
-      collected, but `metric_fn` is not run. The samples file written by the
-      pipeline then serves as a cache of model outputs.
-    * `score_from_samples=<path>`: no runner is used; rows, predictions and
-      errors are reloaded from a previously written samples JSONL and only
-      `metric_fn` runs. Remaining eval args override the cached `task_args` in
-      each row's metadata, so scoring can be re-run with different settings.
+    * `inference_only=True`: requests are sent and per-sample outputs (including
+      any non-empty `task_args`) are collected, but `metric_fn` is not run. The
+      samples file written by the pipeline then serves as a cache of model
+      outputs.
+    * `score_from_samples=<path>`: no runner is used; rows, predictions,
+      errors, telemetry, and saved `task_args` are reloaded from a previously
+      written samples JSONL and only `metric_fn` runs. Remaining eval args
+      override the `task_args` saved with the samples before they are passed
+      to `metric_fn`, so scoring can be re-run with different settings.
 
     Args:
       runner: The target runner implementation responsible for server inference,
@@ -371,9 +379,10 @@ class CustomFramework(base.AbstractEvalFramework):
       An EvalResults instance containing all aggregated task metrics and
       outputs. The per-sample outputs contain the keys 'input', 'prediction',
       'errors', 'telemetry' (when run against a server or present in the
-      samples file), 'ground_truth', and optional 'metadata' (plus
-      'sample_index' when preserved from a re-scored samples file); 'input' is
-      `task.sample_input_fn(row)` when set, else the row's `requests`.
+      samples file), 'ground_truth', optional 'metadata', and optional
+      'task_args' (when non-empty, plus 'sample_index' when preserved from a
+      re-scored samples file); 'input' is `task.sample_input_fn(row)` when set,
+      else the row's `requests`.
     """
     eval_params = self._from_unified_eval_args(
         limit, sample_range, batch_size, eval_args
@@ -451,7 +460,7 @@ class CustomFramework(base.AbstractEvalFramework):
       samples: Any = None,
       task_args: tasks_base.TaskArgs | None = None,
       inference_only: bool = False,
-  ) -> tuple[dict[str, float], list[dict[str, Any]]]:
+  ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Executes a single custom evaluation task against `task.endpoint`.
 
     Args:
@@ -471,7 +480,8 @@ class CustomFramework(base.AbstractEvalFramework):
     Returns:
       A tuple `(metrics, sample_outputs)` where each entry in `sample_outputs`
       contains `'input'`, `'prediction'`, `'errors'`, `'telemetry'`,
-      `'ground_truth'`, and optional `'metadata'`.
+      `'ground_truth'`, optional `'metadata'`, and optional `'task_args'` (when
+      non-empty).
     """
     url = f"{runner.server_url}/{task.endpoint}"
     evaluated: list[_EvaluatedRow] = []
@@ -508,10 +518,10 @@ class CustomFramework(base.AbstractEvalFramework):
         )
 
     if inference_only:
-      result: dict[str, float] = {}
+      result: dict[str, Any] = {}
     else:
       result = _run_metric_fn(task, evaluated, merged_task_args)
-    return result, _sample_outputs(evaluated)
+    return result, _sample_outputs(evaluated, merged_task_args)
 
   def _score_samples(
       self,
@@ -523,7 +533,7 @@ class CustomFramework(base.AbstractEvalFramework):
       samples: Any = None,
       task_args: tasks_base.TaskArgs | None = None,
       allow_single_task_fallback: bool = True,
-  ) -> tuple[dict[str, float], list[dict[str, Any]]]:
+  ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Runs `task.metric_fn` over records reloaded from a samples file.
 
     Args:
@@ -533,8 +543,9 @@ class CustomFramework(base.AbstractEvalFramework):
       limit: Optional limit on number of samples to score.
       sample_range: Optional range of samples to score.
       samples: Optional explicit sample indices or dictionary map.
-      task_args: Eval args that override the cached `task_args` in each row's
-        metadata (e.g. to re-score with a different metric configuration).
+      task_args: Eval args that override the `task_args` saved with the samples
+        before they are passed to `task.metric_fn` (e.g. to re-score with a
+        different metric configuration).
       allow_single_task_fallback: Whether a single-task samples file may be
         scored under a different task name when only one task is requested.
 
@@ -551,7 +562,13 @@ class CustomFramework(base.AbstractEvalFramework):
         and len(records_by_task) == 1
     ):
       # A single-task samples file may be scored under a different task name.
-      records = next(iter(records_by_task.values()))
+      source_task, records = next(iter(records_by_task.items()))
+      logging.warning(
+          "No samples for task %r in samples file; scoring single-task records"
+          " from %r instead.",
+          task.name,
+          source_task,
+      )
     if not records:
       raise ValueError(
           f"No samples for task '{task.name}' in samples file; found tasks:"
@@ -561,49 +578,48 @@ class CustomFramework(base.AbstractEvalFramework):
         _select_rows(records, task.name, limit, sample_range, samples)
     )
     overrides = dict(task_args or {})
-    cached_task_args: tasks_base.TaskArgs = {}
-    if selected_records:
-      first_meta = selected_records[0].get("metadata") or {}
-      cached_task_args = dict(first_meta.get("task_args") or {})
+    saved_task_args = _extract_saved_task_args(selected_records or records)
     effective_task_args: tasks_base.TaskArgs = {
-        **cached_task_args,
+        **saved_task_args,
         **overrides,
     }
+    if task.sample_input_fn is not None and selected_records:
+      logging.warning(
+          "Task %r sets sample_input_fn, so the original requests were not"
+          " persisted; metric_fn receives row['requests'] == [] when scoring"
+          " from samples.",
+          task.name,
+      )
     evaluated: list[_EvaluatedRow] = []
     for rec in selected_records:
       raw_metadata = rec.get("metadata")
       telemetry = rec.get("telemetry")
-      metadata = dict(raw_metadata) if raw_metadata is not None else {}
-      if overrides:
-        metadata["task_args"] = {
-            **(metadata.get("task_args") or {}),
-            **overrides,
-        }
-      saved_input = rec.get("input")
-      requests: tasks_base.Requests = (
-          saved_input if isinstance(saved_input, list) else []
-      )
+      sample_input = rec["input"] if "input" in rec else []
+      if (
+          task.sample_input_fn is None
+          and isinstance(sample_input, list)
+          and all(isinstance(x, dict) for x in sample_input)
+      ):
+        requests: tasks_base.Requests = sample_input
+      else:
+        requests = []
       row_dict: dict[str, Any] = {
           "requests": requests,
           "ground_truth": rec.get("ground_truth"),
       }
-      if raw_metadata is not None or metadata:
-        row_dict["metadata"] = metadata
+      user_meta_out: dict[str, Any] | None = None
+      if isinstance(raw_metadata, Mapping):
+        user_meta_out = dict(raw_metadata)
+        row_dict["metadata"] = dict(raw_metadata)
       row = cast(tasks_base.DatasetRow, row_dict)
       if telemetry is not None:
         row = _with_telemetry(row, telemetry)
       prediction: list[Any] = list(rec.get("prediction") or [])
       errors: list[str | None] = list(rec.get("errors") or [])
-      sample_input = saved_input if saved_input is not None else []
-      user_meta_out = (
-          dict(metadata)
-          if (raw_metadata is not None or overrides)
-          else None
-      )
       evaluated.append(
           (row, prediction, errors, sample_input, user_meta_out, telemetry)
       )
-    outputs = _sample_outputs(evaluated)
+    outputs = _sample_outputs(evaluated, effective_task_args)
     for rec, out in zip(selected_records, outputs):
       if rec.get("sample_index") is not None:
         out["sample_index"] = rec["sample_index"]

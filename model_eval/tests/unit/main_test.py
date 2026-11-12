@@ -203,6 +203,35 @@ class MainTest(parameterized.TestCase):
       )
       self.assertNotEqual(result.exit_code, 0)
       self.assertIn("require --framework custom", result.output)
+      result = runner.invoke(
+          main.cli,
+          [
+              "--framework",
+              "custom",
+              "--tasks",
+              "t",
+              "--inference-only",
+              "--eval-args",
+              "inference_only=false",
+          ],
+      )
+      self.assertNotEqual(result.exit_code, 0)
+      self.assertIn("conflicts with 'inference_only'", result.output)
+      result = runner.invoke(
+          main.cli,
+          [
+              "--framework",
+              "custom",
+              "--tasks",
+              "t",
+              "--score-from-samples",
+              samples,
+              "--eval-args",
+              f"score_from_samples={samples}",
+          ],
+      )
+      self.assertNotEqual(result.exit_code, 0)
+      self.assertIn("conflicts with 'score_from_samples'", result.output)
     result = runner.invoke(
         main.cli,
         [
@@ -218,6 +247,21 @@ class MainTest(parameterized.TestCase):
     )
     self.assertNotEqual(result.exit_code, 0)
     self.assertIn("require --framework custom", result.output)
+    result = runner.invoke(
+        main.cli,
+        [
+            "--framework",
+            "lm-eval",
+            "--runner",
+            "litert-lm",
+            "--tasks",
+            "t",
+            "--eval-args",
+            "inference_only=ture",
+        ],
+    )
+    self.assertNotEqual(result.exit_code, 0)
+    self.assertIn("Cannot interpret 'ture' as a boolean", result.output)
     result = runner.invoke(main.cli, ["--framework", "custom", "--tasks", "t"])
     self.assertNotEqual(result.exit_code, 0)
     self.assertIn("Missing option '--runner'", result.output)

@@ -122,12 +122,16 @@ class CustomTask(Generic[PredictionType, GroundTruthType]):
       (`runner.server_args` beneath `--eval-args`). Each row's
       `metadata["telemetry"]` holds a list of per-request `RequestTelemetry`
       dicts (`{"latency_sec": ...}`, or `None` for requests skipped after an
-      earlier failure). Returns a dictionary mapping metric names to their
-      computed values.
+      earlier failure). `metric_fn` must not depend on `row["requests"]`:
+      per-row context a metric needs belongs in `row["metadata"]` (set by
+      `dataset`) or `ground_truth`. Returns a dictionary mapping metric names
+      to their computed values.
     sample_input_fn: Optional summary of a row's input for the per-sample
       outputs. When set, `sample_input_fn(row)` is recorded as the sample's
       `"input"` instead of the full `row["requests"]`; useful when requests
-      embed large payloads such as base64 audio or images.
+      embed large payloads such as base64 audio or images. With
+      `--score-from-samples`, `row["requests"]` is always `[]` for such tasks
+      because the original requests are not persisted.
   """
 
   name: str
