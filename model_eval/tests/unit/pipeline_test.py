@@ -323,6 +323,15 @@ class EvalPipelineTest(absltest.TestCase):
           eval_args={"inference_only": True},
       )
 
+    # Falsy string values like "false" or "0" must not trigger false errors.
+    pipeline.EvalPipeline(
+        model=runner_cfg,
+        framework=framework_base.FrameworkType.LM_EVAL,
+        tasks=("t",),
+        output_dir=self.output_dir,
+        eval_args={"inference_only": "False"},
+    )
+
     # When both model and score_from_samples are supplied, run() uses the
     # scoring-only path without creating or starting the runner.
     mock_framework = mock.MagicMock()
@@ -337,7 +346,10 @@ class EvalPipelineTest(absltest.TestCase):
         framework=framework_base.FrameworkType.CUSTOM,
         tasks=("t",),
         output_dir=self.output_dir,
-        eval_args={"score_from_samples": "/tmp/samples.jsonl"},
+        eval_args={
+            "score_from_samples": "/tmp/samples.jsonl",
+            "inference_only": "false",
+        },
     )
     res = p.run()
     self.assertEqual(res.aggregated_metrics, {"t": {"wer": 0.2}})

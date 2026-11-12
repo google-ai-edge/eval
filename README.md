@@ -458,7 +458,8 @@ Each evaluated row produces one per-sample output with the keys `input`,
 entry per request, `None` on success), `telemetry` (one `RequestTelemetry` dict
 `{"latency_sec": ...}` per request with client-observed wall-clock seconds, or
 `None` for requests skipped after an earlier failure in the same row),
-`ground_truth`, and optional `metadata`.
+`ground_truth`, optional `metadata`, and optional `task_args` (recorded when
+non-empty so staged runs preserve `runner.server_args` and `--eval-args`).
 
 The framework also passes the per-request telemetry to `metric_fn` through each
 row's `metadata["telemetry"]`, so a task can compute throughput metrics (e.g. an
@@ -473,7 +474,11 @@ Two `CustomTask` hooks keep large or configurable tasks manageable:
 - `metric_fn(preds, gts, rows, task_args)`: receives the same merged
   `task_args` (`runner.server_args` beneath `--eval-args`) as the fourth
   positional argument (e.g. `model_name`, or an output directory passed via
-  `--eval-args`).
+  `--eval-args`). `metric_fn` must not depend on `row["requests"]`; per-row
+  context a metric needs belongs in `row["metadata"]` (set by `dataset`) or
+  `ground_truth`. With `--score-from-samples`, `row["requests"]` is `[]` for
+  tasks that set `sample_input_fn`, since the original requests are not
+  persisted.
 
 ### 5. Staged Execution
 
@@ -481,7 +486,8 @@ For custom tasks that pair fast on-device inference with slow or offline
 scoring, you can decouple inference from metric calculation into two stages:
 
 1. **Stage 1 — Inference only (`--inference-only`)**: Sends requests to the
-   runner and saves predictions, telemetry, and row metadata to
+   runner and saves predictions, telemetry, row metadata, and merged
+   `task_args` (`runner.server_args` beneath `--eval-args`) to
    `<output_dir>/run_<ts>_samples.jsonl`, skipping `metric_fn`:
 
    ```bash
@@ -496,10 +502,10 @@ scoring, you can decouple inference from metric calculation into two stages:
    ```
 
 2. **Stage 2 — Score from cached samples (`--score-from-samples`)**: Reloads
-   rows, predictions, errors, and telemetry from a previously written
-   `samples.jsonl` and runs `metric_fn` without starting a runner. Any
-   `--eval-args` passed at scoring time override the cached `task_args` in each
-   row's metadata:
+   rows, predictions, errors, telemetry, and saved `task_args` from a
+   previously written `samples.jsonl` and runs `metric_fn` without starting a
+   runner. Any `--eval-args` passed at scoring time override the saved
+   `task_args` forwarded to `metric_fn(preds, gts, rows, task_args)`:
 
    ```bash
    ai-edge-eval \

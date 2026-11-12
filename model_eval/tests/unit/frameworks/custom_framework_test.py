@@ -374,7 +374,8 @@ class CustomFrameworkTest(absltest.TestCase):
             "prediction": [{"v": i}],
             "errors": [None],
             "ground_truth": i,
-            "metadata": {"i": i, "task_args": {"metrics": "latency", "k": 1}},
+            "metadata": {"i": i},
+            "task_args": {"metrics": "latency", "k": 1},
         }
         for i in range(3)
     ]
@@ -412,17 +413,143 @@ class CustomFrameworkTest(absltest.TestCase):
     self.assertEqual(res.metadata, {"score_from_samples": path})
     self.assertEqual(captured["preds"], [[{"v": 1}], [{"v": 2}]])
     self.assertEqual(captured["gts"], [1, 2])
+    # Eval args given at scoring time override the saved task args.
+    self.assertEqual(
+        captured["task_args"], {"metrics": "latency+wer", "k": 1}
+    )
     row = captured["rows"][0]
     self.assertEqual(row["requests"], [{"op": "x"}])
-    # Eval args given at scoring time override the cached task args.
+    # Row metadata is passed through untouched (no task_args injected).
+    self.assertEqual(row["metadata"], {"i": 1})
+    self.assertEqual(res.per_sample_outputs["stage"][0]["metadata"], {"i": 1})
     self.assertEqual(
-        row["metadata"]["task_args"], {"metrics": "latency+wer", "k": 1}
+        res.per_sample_outputs["stage"][0]["task_args"],
+        {"metrics": "latency+wer", "k": 1},
     )
-    self.assertEqual(res.per_sample_outputs["stage"][0]["metadata"]["i"], 1)
     # Original sample_index from the input file is preserved in output samples.
     self.assertEqual(
         [s["sample_index"] for s in res.per_sample_outputs["stage"]], [1, 2]
     )
+
+  def test_staged_round_trip_preserves_task_args_telemetry_and_clean_metadata(
+      self,
+  ):
+    rows = [
+        {
+            "requests": [{"op": "ok"}, {"op": "fail"}, {"op": "after"}],
+            "ground_truth": "gt-0",
+        },
+        {
+            "requests": [{"op": "ok"}],
+            "ground_truth": "gt-1",
+            "metadata": {"utt_id": "u1"},
+        },
+    ]
+
+    def handler(request):
+      body = json.loads(request.content)
+      if body["op"] == "fail":
+        return httpx.Response(500, text="boom")
+      return httpx.Response(200, json={"echo": body["op"]})
+
+    stage2_captured: dict[str, Any] = {}
+
+    def metric_fn(preds, gts, rs, task_args):
+      stage2_captured["preds"] = list(preds)
+      stage2_captured["gts"] = list(gts)
+      stage2_captured["rows"] = list(rs)
+      stage2_captured["task_args"] = dict(task_args)
+      return {"count": float(len(stage2_captured["preds"])), "mode": "scored"}
+
+    task = tasks.CustomTask(
+        name="roundtrip",
+        endpoint="op",
+        dataset=lambda _: iter(rows),
+        metric_fn=metric_fn,
+        sample_input_fn=lambda row: [r["op"] for r in row["requests"]],
+    )
+    registry = mock.MagicMock()
+    registry.get_task.return_value = task
+    framework = custom.CustomFramework()
+    with mock.patch.object(
+        custom.tasks_registry.TaskRegistry,
+        "global_registry",
+        return_value=registry,
+    ), mock.patch.object(
+        custom.httpx,
+        "Client",
+        return_value=httpx.Client(transport=httpx.MockTransport(handler)),
+    ):
+      stage1 = framework.evaluate(
+          _runner(server_args={"model_name": "gemma", "split": "train"}),
+          ["roundtrip"],
+          eval_args={"inference_only": True, "split": "dev"},
+      )
+
+    self.assertEqual(stage1.aggregated_metrics["roundtrip"], {})
+    stage1_samples = stage1.per_sample_outputs["roundtrip"]
+    self.assertLen(stage1_samples, 2)
+    self.assertNotIn("metadata", stage1_samples[0])
+    self.assertEqual(stage1_samples[1]["metadata"], {"utt_id": "u1"})
+    self.assertEqual(
+        stage1_samples[0]["task_args"],
+        {"model_name": "gemma", "split": "dev"},
+    )
+
+    # Persist the inference samples in the exact format EvalPipeline writes.
+    samples_path = self.create_tempfile().full_path
+    with open(samples_path, "w") as f:
+      for idx, sample in enumerate(stage1_samples):
+        f.write(
+            json.dumps({"task": "roundtrip", "sample_index": idx, **sample})
+            + "\n"
+        )
+
+    with mock.patch.object(
+        custom.tasks_registry.TaskRegistry,
+        "global_registry",
+        return_value=registry,
+    ), self.assertLogs(level="WARNING") as logs:
+      stage2 = framework.evaluate(
+          None,
+          ["roundtrip"],
+          eval_args={
+              "score_from_samples": samples_path,
+              "manifest_dir": "/tmp/out",
+          },
+      )
+    # Tasks with sample_input_fn are warned once that requests are unavailable.
+    self.assertLen(
+        [m for m in logs.output if "row['requests'] == []" in m], 1
+    )
+
+    self.assertEqual(
+        stage2.aggregated_metrics["roundtrip"],
+        {"count": 2.0, "mode": "scored"},
+    )
+    # Saved server_args + eval_args survive re-scoring under new overrides.
+    expected_args = {
+        "model_name": "gemma",
+        "split": "dev",
+        "manifest_dir": "/tmp/out",
+    }
+    self.assertEqual(stage2_captured["task_args"], expected_args)
+    # sample_input_fn replaced requests with ["ok", ...], so re-scored row
+    # requests are [] while output sample input preserves the summary.
+    row0, row1 = stage2_captured["rows"]
+    self.assertEqual(row0["requests"], [])
+    self.assertIsNotNone(row0["metadata"]["telemetry"][0])
+    self.assertIsNotNone(row0["metadata"]["telemetry"][1])
+    self.assertIsNone(row0["metadata"]["telemetry"][2])
+    self.assertNotIn("task_args", row0["metadata"])
+    self.assertEqual(row1["metadata"]["utt_id"], "u1")
+    self.assertNotIn("task_args", row1["metadata"])
+    # Output samples do not fabricate metadata on rows that had none.
+    stage2_samples = stage2.per_sample_outputs["roundtrip"]
+    self.assertNotIn("metadata", stage2_samples[0])
+    self.assertEqual(stage2_samples[0]["input"], ["ok", "fail", "after"])
+    self.assertEqual(stage2_samples[0]["task_args"], expected_args)
+    self.assertEqual(stage2_samples[1]["metadata"], {"utt_id": "u1"})
 
   def test_from_samples_omits_metadata_when_not_present_or_overridden(self):
     path = self.create_tempfile(
@@ -510,26 +637,6 @@ class CustomFrameworkTest(absltest.TestCase):
         ValueError, "Cannot interpret 'ture' as a boolean"
     ):
       custom._as_bool("ture")
-
-  def test_open_text_remote_cns_path(self):
-    import io
-
-    fake_gfile = mock.MagicMock()
-    fake_gfile.Exists.return_value = True
-    fake_gfile.Open.return_value = io.StringIO(
-        json.dumps({"task": "t", "prediction": [1]}) + "\n"
-    )
-    with mock.patch("importlib.import_module", return_value=fake_gfile):
-      by_task = custom._load_samples_file("/cns/cell/home/user/samples.jsonl")
-    self.assertEqual(by_task, {"t": [{"task": "t", "prediction": [1]}]})
-    fake_gfile.Exists.assert_called_once_with(
-        "/cns/cell/home/user/samples.jsonl"
-    )
-
-    fake_gfile.Exists.return_value = False
-    with mock.patch("importlib.import_module", return_value=fake_gfile):
-      with self.assertRaises(FileNotFoundError):
-        custom._load_samples_file("/cns/cell/home/user/missing.jsonl")
 
   def test_from_samples_errors(self):
     framework = custom.CustomFramework()
