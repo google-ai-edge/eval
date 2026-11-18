@@ -1,0 +1,64 @@
+<!--
+ Copyright 2026 The AI Edge Model Explorer Authors.
+
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+ ==============================================================================
+-->
+<button
+  class="chat-menu"
+  [matMenuTriggerFor]="chatMenu"
+  [disabled]="!chats().length"
+  aria-label="Chats"
+  [matTooltip]="workspace.chat()?.summary ?? 'Chats'"
+>
+  <span class="chat-label">{{ label() }}</span>
+  @if (workspace.chat(); as chat) {
+    <span class="chat-state" [class.live]="chat.state === 'live'">{{
+      chat.state === 'live' ? 'Live' : 'Ended'
+    }}</span>
+  }
+  <mat-icon aria-hidden="true">arrow_drop_down</mat-icon>
+</button>
+<!-- The hint sits on a wrapper: a disabled button shows no tooltip. -->
+<span class="new-chat-hint" [matTooltip]="newChat().allowed ? 'New chat' : newChat().reason"
+  ><button
+    mat-icon-button
+    class="new-chat"
+    aria-label="New chat"
+    [disabled]="!newChat().allowed"
+    [attr.aria-description]="newChat().reason || null"
+    (click)="openNewChat()"
+  >
+    <mat-icon>add_comment</mat-icon>
+  </button></span
+>
+<mat-menu #chatMenu="matMenu" class="chat-switcher-menu">
+  @for (chat of chats(); track chat.n) {
+    <button
+      mat-menu-item
+      role="menuitemradio"
+      [attr.aria-checked]="workspace.chat()?.n === chat.n"
+      [matTooltip]="chat.title + ' · ' + chat.summary"
+      matTooltipPosition="right"
+      (click)="show(chat)"
+    >
+      <mat-icon>{{ workspace.chat()?.n === chat.n ? 'check' : 'chat_bubble_outline' }}</mat-icon>
+      <span class="chat-item">
+        <span class="chat-title">{{ chat.title }} · {{ chat.summary }}</span>
+        <small class="chat-item-state" [class.live]="chat.state === 'live'">{{
+          state(chat)
+        }}</small>
+      </span>
+    </button>
+  }
+</mat-menu>

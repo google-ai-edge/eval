@@ -1,0 +1,528 @@
+# Copyright 2026 The AI Edge Model Explorer Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""LiteRT-LM's library, built from a commit of its source by its own Bazel.
+
+LiteRT-LM is a WORKSPACE project on Bazel 7 with TensorFlow's dependencies;
+the Runner is a module on Bazel 8 with gRPC's. Neither can host the other, so
+the runtime is built apart and joins the Runner as a library that exports its
+C API alone: its Abseil and protobuf stay inside it and never meet the Runner's.
+
+The repository is a function of the commit and the platform: fetched and
+built once, kept by Bazel's cache until either changes. The commit is the
+rule's attribute unless the repository environment overrides it for the
+platform, LITERT_LM_COMMIT_<PLATFORM> (such as
+--repo_env=LITERT_LM_COMMIT_MACOS_ARM64=<commit>), so that a Runner can be
+built against another LiteRT-LM without editing MODULE.bazel. LiteRT-LM's own
+Bazel keeps its outputs in a directory of the user's cache named after the
+two, so that a repository fetched again (its rule or templates edited, the
+Runner's checkout moved) links what is built rather than compiling LiteRT-LM
+again. What LiteRT-LM ships prebuilt (Git LFS) is taken as it is; on macOS,
+LiteRT and its WebGPU accelerator are built from source with the library.
+macOS gets a Mach-O library linking LiteRT dynamically; iOS a Mach-O library
+with LiteRT and its Metal accelerator linked in, bundled as frameworks; Android
+an ELF library with LiteRT and its GPU accelerator linked in, built with the
+NDK that ANDROID_NDK_HOME names.
+"""
+
+# The lowest macOS and iOS the library is built for, and so the lowest the
+# Runner and its Apps run on: LiteRT-LM's prebuilt
+# libGemmaModelConstraintProvider, which the runtime links, needs iOS 26.4, and
+# macOS follows so that the Apple platforms share one number.
+APPLE_MINIMUM_OS = "26.4"
+
+# Per platform:
+#   flags       what LiteRT-LM is built with: its own .bazelrc config for the
+#               platform, and the Runner's minimum OS after it.
+#   elf         an ELF library (Android) rather than Mach-O (Apple).
+#   linked      what the runtime links from its own directory. macOS links
+#               LiteRT dynamically; iOS and Android link it in.
+#   dynamic     whether LiteRT-LM is built in its dynamic link mode, which
+#               leaves LiteRT and its GPU accelerator to libraries of their
+#               own. Not on iOS: LiteRT builds that libLiteRt for macOS only.
+#   plugins     the GPU plugins the runtime loads at run time, in load order.
+#   built       of `linked` and `plugins`, those built from source with the
+#               library, by their directory under LiteRT-LM's bazel-bin; the
+#               rest are LiteRT-LM's prebuilt ones. LiteRT-LM ships no
+#               prebuilt libLiteRt or GPU accelerator since its commit
+#               c57b9ae0a27e.
+#   frameworks  whether an App bundles the libraries as frameworks (iOS).
+_PLATFORMS = {
+    "macos_arm64": struct(
+        flags = ["--macos_minimum_os=" + APPLE_MINIMUM_OS],
+        elf = False,
+        dynamic = True,
+        linked = ["libLiteRt", "libGemmaModelConstraintProvider"],
+        # No TopK WebGPU sampler: the library is built without one, and
+        # sampling then runs on the CPU.
+        plugins = ["libwebgpu_dawn", "libLiteRtWebGpuAccelerator"],
+        built = {
+            "libLiteRt": "external/litert/litert/c",
+            "libLiteRtWebGpuAccelerator": "external/litert/litert/runtime/accelerators/gpu",
+        },
+        frameworks = False,
+    ),
+    "ios_sim_arm64": struct(
+        flags = ["--config=ios_sim_arm64", "--ios_minimum_os=" + APPLE_MINIMUM_OS],
+        elf = False,
+        dynamic = False,
+        linked = ["libGemmaModelConstraintProvider"],
+        # None: the simulator has no GPU to run on.
+        plugins = [],
+        built = {},
+        frameworks = True,
+    ),
+    "ios_arm64": struct(
+        flags = ["--config=ios_arm64", "--ios_minimum_os=" + APPLE_MINIMUM_OS],
+        elf = False,
+        dynamic = False,
+        linked = ["libGemmaModelConstraintProvider"],
+        # None: LiteRT-LM links the Metal accelerator in.
+        plugins = [],
+        built = {},
+        frameworks = True,
+    ),
+    "android_arm64": struct(
+        flags = ["--config=android_arm64"],
+        elf = True,
+        dynamic = False,
+        linked = ["libGemmaModelConstraintProvider"],
+        # None: LiteRT-LM links the OpenCL/GL accelerator in statically, and
+        # ships no prebuilt one since its commit c57b9ae0a27e.
+        plugins = [],
+        built = {},
+        frameworks = False,
+    ),
+}
+
+# An iOS App bundles a dynamic library only as a framework: a directory named
+# after it, holding the library under that name and a plist.
+_FRAMEWORK_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key>
+  <string>{name}</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.google.ai.edge.modeldebugger.runner.{name}</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>{name}</string>
+  <key>CFBundlePackageType</key>
+  <string>FMWK</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>MinimumOSVersion</key>
+  <string>{minimum_os}</string>
+</dict>
+</plist>
+"""
+
+# The C API headers the Runner includes, and the two they include, from
+# LiteRT-LM's c/ directory.
+_HEADERS = [
+    "api_export.h",
+    "conversation.h",
+    "engine.h",
+    "error_reporter.h",
+    "experimental.h",
+    "model_info.h",
+]
+
+def _wrap_in_framework(ctx, name, linked, keep_id = False):
+    """Turns <name>.dylib in the repository into <name>.framework.
+
+    The library's install name becomes @rpath/<name>.framework/<name>, unless
+    `keep_id`, and so does each of `linked` it refers to; then it is signed
+    again.
+    """
+    binary = "{}.framework/{}".format(name, name)
+
+    # The plist first: writing it makes the directory.
+    ctx.file("{}.framework/Info.plist".format(name), _FRAMEWORK_PLIST.replace("{name}", name).replace("{minimum_os}", APPLE_MINIMUM_OS))
+    _run(ctx, ["mv", name + ".dylib", binary], ".", "mv")
+    if not keep_id:
+        _run(
+            ctx,
+            ["install_name_tool", "-id", "@rpath/" + binary, binary],
+            ".",
+            "install_name_tool -id",
+        )
+    for other in linked:
+        _run(
+            ctx,
+            [
+                "install_name_tool",
+                "-change",
+                "@rpath/{}.dylib".format(other),
+                "@rpath/{}.framework/{}".format(other, other),
+                binary,
+            ],
+            ".",
+            "install_name_tool -change",
+        )
+    _run(ctx, ["codesign", "--force", "--sign", "-", binary], ".", "codesign")
+
+def _run(ctx, arguments, cwd, what, timeout = 600, quiet = True):
+    """Runs a command in cwd and fails with its output if it does not succeed."""
+    result = ctx.execute(
+        arguments,
+        working_directory = cwd,
+        timeout = timeout,
+        environment = ctx.os.environ,
+        quiet = quiet,
+    )
+    if result.return_code != 0:
+        fail("litert_lm: {} failed:\n{}{}".format(what, result.stdout, result.stderr))
+    return result.stdout
+
+def _commit(ctx):
+    """Returns the commit to build: the platform's override, or the attribute.
+
+    getenv makes the repository depend on the variable, so that setting,
+    changing or clearing it fetches the repository again.
+    """
+    variable = "LITERT_LM_COMMIT_" + ctx.attr.platform.upper()
+    commit = ctx.getenv(variable) or ctx.attr.commit
+    if len(commit) != 40 or [c for c in commit.elems() if c not in "0123456789abcdef"]:
+        fail("litert_lm: the commit must be whole, 40 lower-case hex digits; got '{}' from {}".format(
+            commit,
+            variable if ctx.getenv(variable) else "the commit attribute",
+        ))
+    return commit
+
+def _commit_facts(ctx, source, commit):
+    """Returns what commit.json says of the commit: when, and its CL.
+
+    The CL is the number of the PiperOrigin-RevId line of the commit message,
+    as LiteRT-LM's exported commits carry it (some with a prefix, such as
+    LiteRT-LM-PiperOrigin-RevId); None when the message has none.
+    """
+    date = _run(ctx, ["git", "log", "-1", "--format=%cI", "HEAD"], str(source), "git log")
+    message = _run(ctx, ["git", "log", "-1", "--format=%B", "HEAD"], str(source), "git log")
+    cl = None
+    for line in message.splitlines():
+        key, _, value = line.partition(":")
+        if key.strip().endswith("PiperOrigin-RevId") and value.strip().isdigit():
+            cl = value.strip()
+    return {"commit": commit, "commit_date": date.strip(), "cl": cl}
+
+def _fetch_source(ctx, platform, commit):
+    """Checks the commit out under source/ and returns that path.
+
+    One commit, no history; then the prebuilt libraries of the platform, which
+    are Git LFS pointers until pulled (the C API library links two of them).
+    """
+    source = ctx.path("source")
+    _run(ctx, ["git", "init", "-q", str(source)], ".", "git init")
+    _run(ctx, ["git", "remote", "add", "origin", ctx.attr.url], str(source), "git remote add")
+    _run(
+        ctx,
+        ["git", "fetch", "-q", "--depth=1", "origin", commit],
+        str(source),
+        "git fetch (the LiteRT-LM commit)",
+        timeout = 3600,
+    )
+    _run(ctx, ["git", "checkout", "-q", "FETCH_HEAD"], str(source), "git checkout")
+    _run(ctx, ["git", "lfs", "install", "--local"], str(source), "git lfs install")
+    _run(
+        ctx,
+        ["git", "lfs", "pull", "--include=prebuilt/{}/*".format(platform)],
+        str(source),
+        "git lfs pull",
+        timeout = 3600,
+    )
+    return source
+
+def _output_base(ctx, commit):
+    """Returns the output base of LiteRT-LM's Bazel for this commit and platform.
+
+    It lies in the user's cache, outside every repository: LiteRT-LM's Bazel
+    would otherwise key its outputs by the path of the source, which changes
+    whenever this repository is fetched somewhere else.
+    """
+    home = ctx.os.environ.get("HOME")
+    if not home:
+        fail("litert_lm: HOME is not set; LiteRT-LM is built under ~/Library/Caches")
+    return "{}/Library/Caches/model_debugger/litert_lm/{}/{}".format(
+        home,
+        commit,
+        ctx.attr.platform,
+    )
+
+def _build_library(ctx, bazel, source, platform, commit):
+    """Builds the C API library and returns LiteRT-LM's bazel-bin.
+
+    LiteRT-LM's Bazel server is shut down afterwards, whether or not the build
+    succeeded: nothing else uses it, and it would hold gigabytes of memory.
+    """
+    startup = [bazel, "--output_base=" + _output_base(ctx, commit)]
+
+    # Only the C API is exported: were Abseil and protobuf exported too, the
+    # Runner's own copies would be coalesced with them at load time and the
+    # first destructor would crash.
+    if platform.elf:
+        script = source.get_child("litert_lm_exports.lds")
+        ctx.file(script, "{ global: litert_lm_*; local: *; };\n")
+        link = [
+            "--linkopt=-Wl,--version-script=" + str(script),
+            # The section bounds the linker defines, such as Abseil's
+            # __start_malloc_hook, escape the version script; they would meet
+            # the Runner's own.
+            "--linkopt=-Wl,-z,start-stop-visibility=hidden",
+            "--linkopt=-Wl,-soname,liblitert-lm.so",
+        ]
+    else:
+        link = ["--linkopt=-Wl,-exported_symbol,_litert_lm_*"]
+    if platform.dynamic:
+        link.append("--define=litert_runtime_link_mode=dynamic")
+
+    # A long time the first time.
+    built = ctx.execute(
+        startup + ["build"] + platform.flags + link + ["//c:litert-lm"],
+        working_directory = str(source),
+        timeout = 4 * 3600,
+        environment = ctx.os.environ,
+        quiet = False,
+    )
+    bazel_bin = None
+    if built.return_code == 0:
+        bazel_bin = ctx.execute(
+            startup + ["info", "bazel-bin"] + platform.flags,
+            working_directory = str(source),
+            environment = ctx.os.environ,
+        )
+    shutdown = ctx.execute(
+        startup + ["shutdown"],
+        working_directory = str(source),
+        environment = ctx.os.environ,
+    )
+    if built.return_code != 0:
+        fail("litert_lm: building //c:litert-lm failed:\n{}{}".format(built.stdout, built.stderr))
+    if bazel_bin.return_code != 0:
+        fail("litert_lm: bazel info failed:\n{}{}".format(bazel_bin.stdout, bazel_bin.stderr))
+    if shutdown.return_code != 0:
+        fail("litert_lm: bazel shutdown failed:\n{}{}".format(shutdown.stdout, shutdown.stderr))
+    return bazel_bin.stdout.strip()
+
+def _check_library(ctx, library, platform):
+    """Refuses a library without the debugger, or exporting or linking amiss.
+
+    It exports the C API alone. A Mach-O library also records each of
+    `linked` as a load command and looks no symbol up at run time: LiteRT-LM's
+    .bazelrc links every Apple library with -undefined dynamic_lookup, and a
+    library left out of the link would be missed only by the first call.
+    """
+    elf = platform.elf
+
+    # The debugger is what a Runner is for. A library with it names the
+    # directory it captures into; the ELF build strips every symbol, so the
+    # text is what survives on every platform.
+    if ctx.execute(["grep", "-a", "-q", "litert_lm_debugger", library]).return_code != 0:
+        fail("litert_lm: the library was built without the debugger")
+    if elf:
+        exported = _run(ctx, ["nm", "-D", "--defined-only", library], ".", "nm -D")
+        prefix = "litert_lm_"
+    else:
+        exported = _run(ctx, ["nm", "-gU", library], ".", "nm -g")
+        prefix = "_litert_lm_"
+    for line in exported.splitlines():
+        if not line.split(" ")[-1].startswith(prefix):
+            fail("litert_lm: the library exports more than the C API: " + line)
+    if elf:
+        return
+    loads = _run(ctx, ["otool", "-L", library], ".", "otool -L")
+    for name in platform.linked:
+        if "@rpath/{}.dylib ".format(name) not in loads:
+            fail("litert_lm: the library does not link {}:\n{}".format(name, loads))
+    symbols = _run(ctx, ["nm", "-m", library], ".", "nm -m")
+    for line in symbols.splitlines():
+        if "dynamically looked up" in line:
+            fail("litert_lm: the library looks a symbol up at run time: " + line)
+
+# The targets of a repository; one that cannot be built holds them all, failing.
+_TARGETS = ["c_api", "version", "plugins", "litert_lm", "gpu_libraries", "gpu_library_imports", "runtime_files"]
+
+def _write_unavailable(ctx, why):
+    """Makes the repository's targets fail with `why` when they are built.
+
+    The Runner's selects name every platform's repository, and a build loads
+    each of them: a platform this machine cannot build for must not fail the
+    builds of the others.
+    """
+    ctx.file("unavailable.bzl", """def _impl(ctx):
+    fail("litert_lm: {why}")
+
+unavailable = rule(implementation = _impl)
+""".replace("{why}", why))
+    ctx.file("BUILD.bazel", 'load(":unavailable.bzl", "unavailable")\n\n' + "".join([
+        'unavailable(\n    name = "{}",\n    visibility = ["//visibility:public"],\n)\n\n'.format(t)
+        for t in _TARGETS
+    ]))
+
+def _plugin_path(plugin, platform, extension):
+    """Returns where `plugin` is, from the directory of the runtime library."""
+    if platform.frameworks:
+        return "../{}.framework/{}".format(plugin, plugin)
+    return "{}.{}".format(plugin, extension)
+
+def _impl(ctx):
+    platform = _PLATFORMS[ctx.attr.platform]
+    if platform.elf and not ctx.os.environ.get("ANDROID_NDK_HOME"):
+        _write_unavailable(ctx, "ANDROID_NDK_HOME must name an Android NDK (r28b) for " + ctx.attr.platform)
+        return
+    bazel = ctx.which("bazelisk")
+    if bazel == None:
+        fail("litert_lm: bazelisk is not installed (brew install bazelisk)")
+    if ctx.which("git-lfs") == None:
+        fail("litert_lm: git-lfs is not installed (brew install git-lfs)")
+    commit = _commit(ctx)
+    extension = "so" if platform.elf else "dylib"
+    source = _fetch_source(ctx, ctx.attr.platform, commit)
+    prebuilt = "prebuilt/{}".format(ctx.attr.platform)
+
+    library = "liblitert-lm." + extension
+    bazel_bin = _build_library(ctx, bazel, source, platform, commit)
+    _run(ctx, ["cp", "{}/c/{}".format(bazel_bin, library), library], ".", "cp")
+    _run(ctx, ["chmod", "u+w", library], ".", "chmod")
+    if not platform.elf:
+        # Bazel gives the library the install name bazel-out/.../liblitert-lm.dylib,
+        # which a linked binary would record and never find; its id becomes
+        # @rpath/liblitert-lm.dylib here, and it is signed again, since arm64
+        # loads no unsigned library.
+        _run(ctx, ["install_name_tool", "-id", "@rpath/" + library, library], ".", "install_name_tool")
+        _run(ctx, ["codesign", "--force", "--sign", "-", library], ".", "codesign")
+    _check_library(ctx, library, platform)
+
+    # The libraries the runtime links (by @rpath, from its own directory) and
+    # the GPU plugins it loads, as LiteRT-LM ships them, beside it: the
+    # directory the runtime finds itself in.
+    for name in platform.linked + platform.plugins:
+        file = "{}.{}".format(name, extension)
+        if name in platform.built:
+            origin = "{}/{}/{}".format(bazel_bin, platform.built[name], file)
+        else:
+            origin = "{}/{}/{}".format(source, prebuilt, file)
+        _run(ctx, ["cp", origin, file], ".", "cp")
+        _run(ctx, ["chmod", "u+w", file], ".", "chmod")
+    if platform.frameworks:
+        _wrap_in_framework(ctx, "liblitert-lm", platform.linked)
+
+        # A prebuilt library keeps its own install name: it has no room in its
+        # header for the longer framework one. Its import uses bundle_only so the
+        # App binary does not link that .dylib install name directly; the runtime
+        # refers to it by its framework path.
+        for name in platform.linked:
+            _wrap_in_framework(ctx, name, [], keep_id = True)
+
+        # LiteRT and LiteRT-LM open a GPU plugin by its file name alone,
+        # libX.dylib, which finds the loaded image of that install name: a
+        # plugin keeps its own.
+        for name in platform.plugins:
+            _wrap_in_framework(ctx, name, [], keep_id = True)
+
+    for header in _HEADERS:
+        ctx.symlink(source.get_child("c").get_child(header), "c/" + header)
+
+    # The commit, for the runtime to report as its version: the C API does not
+    # say, and whoever built the library knows.
+    ctx.file("version.h", """// The LiteRT-LM commit this library was built from. Generated.
+#ifndef LITERT_LM_VERSION_H_
+#define LITERT_LM_VERSION_H_
+
+#include <string>
+
+namespace litert_lm {
+inline constexpr char kCommit[] = "{commit}";
+inline std::string Version() { return kCommit; }
+}  // namespace litert_lm
+
+#endif  // LITERT_LM_VERSION_H_
+""".replace("{commit}", commit))
+
+    # The commit's facts, for a kept Runner to record (cli:keep).
+    ctx.file("commit.json", json.encode_indent(_commit_facts(ctx, source, commit)) + "\n")
+
+    # The plugins, for the runtime to load in this order from its directory:
+    # beside it, or, as frameworks, beside its own framework.
+    ctx.file("plugins.h", """// The GPU plugins of this platform's LiteRT-LM, in load order. Generated.
+#ifndef LITERT_LM_PLUGINS_H_
+#define LITERT_LM_PLUGINS_H_
+
+#include <array>
+
+namespace litert_lm {
+inline constexpr std::array<const char*, %d> kGpuPlugins = {%s};
+}  // namespace litert_lm
+
+#endif  // LITERT_LM_PLUGINS_H_
+""" % (len(platform.plugins), ", ".join(['"{}"'.format(_plugin_path(p, platform, extension)) for p in platform.plugins])))
+    build_file = ctx.attr._build_file_ios if platform.frameworks else ctx.attr._build_file
+    ctx.template("BUILD.bazel", build_file, {
+        "{commit}": commit,
+        "{platform}": ctx.attr.platform,
+        "{headers}": ", ".join(['"c/{}"'.format(h) for h in _HEADERS]),
+        "{library}": library,
+        "{linked}": ", ".join(['":{}"'.format(n) for n in platform.linked]),
+        "{linked_files}": ", ".join(['"{}.{}"'.format(n, extension) for n in platform.linked]),
+        "{imports}": "\n".join([
+            'cc_import(\n    name = "{}",\n    shared_library = "{}.{}",\n)\n'.format(n, n, extension)
+            for n in platform.linked
+        ]),
+        "{plugins}": ", ".join(['"{}.{}"'.format(p, extension) for p in platform.plugins]),
+        "{plugin_labels}": ", ".join(['":{}"'.format(p) for p in platform.plugins]),
+        "{linked_framework_imports}": "\n".join([
+            'apple_dynamic_framework_import(\n    name = "{}",\n    bundle_only = True,\n    framework_imports = glob(["{}.framework/**"]),\n)\n'.format(n, n)
+            for n in platform.linked
+        ]),
+        "{plugin_framework_imports}": "\n".join([
+            'apple_dynamic_framework_import(\n    name = "{}",\n    bundle_only = True,\n    framework_imports = glob(["{}.framework/**"]),\n)\n'.format(p, p)
+            for p in platform.plugins
+        ]),
+        "{plugin_imports}": "\n".join([
+            'cc_import(\n    name = "{}",\n    shared_library = "{}.{}",\n)\n'.format(p, p, extension)
+            for p in platform.plugins
+        ]),
+    })
+
+litert_lm_library = repository_rule(
+    implementation = _impl,
+    attrs = {
+        "commit": attr.string(
+            mandatory = True,
+            doc = "The LiteRT-LM commit to build, whole, unless " +
+                  "LITERT_LM_COMMIT_<PLATFORM> in the repository environment overrides it.",
+        ),
+        "url": attr.string(
+            default = "https://github.com/google-ai-edge/LiteRT-LM.git",
+            doc = "Where the commit is fetched from.",
+        ),
+        "platform": attr.string(
+            mandatory = True,
+            values = _PLATFORMS.keys(),
+            doc = "What the library is built for, as LiteRT-LM names it.",
+        ),
+        "_build_file": attr.label(
+            default = "//model_debugger/runner/llm/litert_lm:litert_lm.BUILD",
+        ),
+        "_build_file_ios": attr.label(
+            default = "//model_debugger/runner/llm/litert_lm:litert_lm_ios.BUILD",
+        ),
+    },
+    environ = ["ANDROID_NDK_HOME"],
+    doc = "LiteRT-LM's C API library, built from a commit, and its GPU plugins.",
+)

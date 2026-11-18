@@ -1,0 +1,140 @@
+/* stylelint-disable */
+/**
+ * @license
+ * Copyright 2026 The AI Edge Model Explorer Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ * ==============================================================================
+ */
+
+// Candidate Token Diff text geometry. Shared by normal, virtual and preview paths.
+@mixin token-type {
+  box-sizing: border-box;
+  font: 400 14px/24px var(--me-font-family);
+  min-height: 26px;
+  padding: 1px 0;
+  vertical-align: top;
+  &.empty-token {
+    min-width: 10px;
+  }
+}
+// The one heat palette. Token Diff applies it through the mixins below.
+:root {
+  --heat-semantic-low: light-dark(#fffaf3, #3f352b);
+  --heat-semantic-high: light-dark(#df984f, #85603b);
+  --heat-activation-low: light-dark(#f7f5ff, #363044);
+  --heat-activation-high: light-dark(#aa92dd, #705889);
+  --heat-hatch: light-dark(#b6b0a6, #8e877b);
+}
+@mixin semantic-colors {
+  --b0: light-dark(#d2eada, #426e51);
+  --b4: light-dark(#fadbd6, #8b4c49);
+  --heat-low: var(--heat-semantic-low);
+  --heat-high: var(--heat-semantic-high);
+}
+
+@mixin activation-colors {
+  --heat-low: var(--heat-activation-low);
+  --heat-high: var(--heat-activation-high);
+}
+
+// The heat palette a numeric Token Diff color names; with each of the two mixins below.
+@mixin numeric-palette {
+  [data-palette='activation'] {
+    @include activation-colors;
+  }
+}
+// Tokens filled by their metric value, or hatched where it is missing.
+@mixin numeric-tokens {
+  @include numeric-palette;
+  button.numeric-token.numeric-token,
+  span.numeric-token.numeric-token {
+    background: color-mix(in srgb, var(--heat-high) var(--heat-level), var(--heat-low));
+    color: var(--me-on-surface-color);
+    box-shadow: var(--token-interaction-overlay, none);
+  }
+  button.numeric-missing.numeric-missing,
+  span.numeric-missing.numeric-missing {
+    background: repeating-linear-gradient(135deg, transparent 0 4px, var(--heat-hatch) 4px 5px);
+    color: var(--me-on-surface-color);
+    box-shadow: var(--token-interaction-overlay, none);
+  }
+}
+// The legend of a numeric color: its scale from low to high.
+@mixin numeric-legend {
+  @include numeric-palette;
+  .heat-scale {
+    display: inline-block;
+    width: 64px;
+    height: 8px;
+    border-radius: 2px;
+    background: linear-gradient(to right, var(--heat-low), var(--heat-high));
+  }
+  .numeric-legend[hidden] {
+    display: none;
+  }
+  .numeric-legend {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font: 11px/20px var(--me-font-family);
+    white-space: nowrap;
+  }
+}
+
+@mixin token-outline {
+  border: var(--token-border-width, 1px) solid
+    var(--token-border-color, var(--token-detail-color, light-dark(#9aaabd, #65758b)));
+  padding: 0 2px;
+  margin: var(--token-margin, 1px);
+  border-radius: var(--token-radius, 2px);
+  box-shadow: var(--token-interaction-overlay, none);
+}
+
+// Direct token clicks and Stage/analysis ranges share one selection appearance.
+// The overlay preserves data fills and hatching underneath.
+@mixin token-selection($width: 2px) {
+  position: relative;
+  z-index: 3;
+  --token-interaction-overlay: inset 0 0 0 100vmax
+    light-dark(
+      color-mix(in srgb, var(--me-node-selected-border-color) 16%, transparent),
+      color-mix(in srgb, var(--me-node-selected-border-color) 24%, transparent)
+    );
+  box-shadow: var(--token-interaction-overlay);
+  outline: $width solid var(--me-node-selected-border-color);
+  outline-offset: -$width;
+  border-radius: var(--token-radius, 2px);
+  &:is(:hover, .linked-token-hover, .pair-hover, .hover-origin, .step-partner) {
+    --token-interaction-overlay: inset 0 0 0 100vmax
+      light-dark(
+        color-mix(in srgb, var(--me-node-selected-border-color) 22%, transparent),
+        color-mix(in srgb, var(--me-node-selected-border-color) 30%, transparent)
+      );
+  }
+}
+
+@mixin token-focus-ring {
+  outline: 2px dashed var(--pri, var(--me-primary-color));
+  outline-offset: -2px;
+}
+
+// A light blue overlay preserves data colors; selection uses a stronger tint.
+@mixin token-pair-hover {
+  position: relative;
+  z-index: 2;
+  --token-interaction-overlay: inset 0 0 0 100vmax
+    color-mix(in srgb, var(--me-node-selected-border-color) 10%, transparent);
+  box-shadow: var(--token-interaction-overlay);
+  @include token-focus-ring;
+}

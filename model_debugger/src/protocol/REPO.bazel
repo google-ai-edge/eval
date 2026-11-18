@@ -1,0 +1,2 @@
+# Marks protocol/ as a Bazel repository, mounted by runner/MODULE.bazel and
+# server/MODULE.bazel as @protocol.

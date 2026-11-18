@@ -1,0 +1,195 @@
+/**
+ * @license
+ * Copyright 2026 The AI Edge Model Explorer Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ * ==============================================================================
+ */
+
+:host {
+  font-family: var(--me-font-family);
+  color: var(--me-on-surface-color);
+  display: block;
+  flex: none;
+}
+.topbar {
+  height: 48px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--me-surface-variant-color);
+  color: var(--me-on-surface-color);
+}
+.topbar.home {
+  border-bottom-color: transparent;
+}
+.spacer {
+  flex: 1;
+  min-width: 0;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font: 400 20px var(--me-font-family);
+  white-space: nowrap;
+}
+.brand img {
+  width: 24px;
+  height: 24px;
+}
+.global-tools {
+  display: flex;
+  align-items: center;
+  color: var(--me-on-surface-variant-color);
+  flex: none;
+}
+.global-tools a,
+.global-tools button {
+  color: inherit;
+}
+.session-name {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.version {
+  padding: 8px 16px;
+  color: var(--me-on-surface-variant-color);
+  font: 12px var(--me-font-family);
+}
+select {
+  font: inherit;
+  color: inherit;
+  background: var(--me-surface-color);
+  border: 1px solid var(--me-surface-variant-color);
+  border-radius: 4px;
+  padding: 6px;
+}
+@media (max-width: 800px) {
+  .topbar:not(.home) {
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+  }
+  .topbar:not(.home) .brand-label {
+    display: none;
+  }
+  .topbar:not(.home) .spacer {
+    display: none;
+  }
+}
+@media (max-width: 500px) {
+  .topbar.home {
+    height: auto;
+    min-height: 48px;
+    flex-wrap: wrap;
+  }
+  .topbar.home .global-tools {
+    margin-left: auto;
+  }
+  .brand {
+    font-size: 18px;
+  }
+  .topbar {
+    gap: 4px;
+  }
+}
+
+.session-context {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  min-width: 0;
+}
+:host .topbar:not(.home) {
+  gap: 12px;
+}
+:host .topbar .mode-switch {
+  margin: 0;
+}
+
+@media (max-width: 1300px) {
+  .topbar:not(.home) .brand-label {
+    display: none;
+  }
+}
+@media (max-width: 1100px) {
+  :host .topbar .session-name {
+    width: 112px;
+    flex-basis: 112px;
+  }
+}
+@media (max-width: 800px) {
+  .topbar:not(.home) .brand {
+    margin-right: -12px;
+  }
+}
+
+@media (max-width: 800px) {
+  .topbar.debug .brand {
+    margin-right: 0;
+  }
+}
+
+// Model Explorer font/state layer; candidates selector geometry.
+:host .topbar .session-name {
+  font: 400 13px/20px var(--me-font-family);
+}
+
+.topbar.debug {
+  background: var(--debug-dock-bg);
+  border-bottom: 1.5px solid var(--debug-dock-border);
+}
+.topbar {
+  --bar-divider: var(--toolbar-divider);
+}
+.topbar.debug {
+  --bar-divider: var(--debug-toolbar-divider);
+}
+.toolbar-divider {
+  width: 1px;
+  height: 24px;
+  flex: 0 0 1px;
+  background: var(--bar-divider);
+  margin: 0 -2px;
+}
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+.topbar:not(.home) .toolbar-actions {
+  margin-left: -2px;
+}
+.chat-divider {
+  margin: 0 4px;
+}
+.toolbar-end-divider {
+  margin: 0 4px 0 10px;
+}
+@media (max-width: 500px) {
+  .topbar.home .toolbar-actions {
+    margin-left: auto;
+  }
+}

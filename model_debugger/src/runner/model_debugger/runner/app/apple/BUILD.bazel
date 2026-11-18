@@ -1,0 +1,143 @@
+# The Runner's App on Apple platforms, one source for macOS and iOS, and a
+# bundle per platform.
+
+load("@rules_apple//apple:apple.bzl", "local_provisioning_profile")
+load("@rules_apple//apple:ios.bzl", "ios_application")
+load("@rules_apple//apple:macos.bzl", "macos_application")
+load("@rules_swift//swift:swift_library.bzl", "swift_library")
+load("//model_debugger/runner/llm/litert_lm:litert_lm_library.bzl", "APPLE_MINIMUM_OS")
+
+# The App: the page, the model that runs a Runner through the C facade and
+# feeds it, and the App around them.
+swift_library(
+    name = "RunnerApp",
+    srcs = [
+        "RunnerApp.swift",
+        "RunnerModel.swift",
+        "RunnerState.swift",
+        "RunnerView.swift",
+        "Theme.swift",
+    ],
+    module_name = "RunnerApp",
+    target_compatible_with = select({
+        "@platforms//os:ios": [],
+        "@platforms//os:macos": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = ["//model_debugger/runner:runner_c"],
+)
+
+# Images: the logo, as SVG.
+filegroup(
+    name = "assets",
+    srcs = glob(["Assets.xcassets/**"]),
+)
+
+# The App's icon, an Icon Composer bundle for both platforms (26 and later
+# take no other): the logo on white, laid out by AppIcon.json; the system
+# gives it its shape and its glass. Assembled here from the Logo image set's
+# SVG, so that the repository holds the logo once.
+genrule(
+    name = "app_icon",
+    srcs = [
+        "AppIcon.json",
+        "Assets.xcassets/Logo.imageset/logo.svg",
+    ],
+    outs = [
+        "AppIcon.icon/icon.json",
+        "AppIcon.icon/Assets/logo.svg",
+    ],
+    cmd = "cp $(execpath AppIcon.json) $(execpath AppIcon.icon/icon.json) && " +
+          "cp $(execpath Assets.xcassets/Logo.imageset/logo.svg) " +
+          "$(execpath AppIcon.icon/Assets/logo.svg)",
+)
+
+# The runtime, linked, is bundled into Contents/Frameworks by the rule; the
+# plugins join it there, where the runtime finds itself.
+macos_application(
+    name = "macos",
+    additional_contents = {
+        "@litert_lm_macos_arm64//:gpu_libraries": "Frameworks",
+    },
+    app_icons = [":app_icon"],
+    bundle_id = "com.google.ai.edge.modeldebugger.runner",
+    bundle_name = "Model Debugger Runner",
+    infoplists = ["Info-macos.plist"],
+    minimum_os_version = APPLE_MINIMUM_OS,
+    resources = [":assets"],
+    deps = [":RunnerApp"],
+)
+
+# The profile a device build is signed with: the one Xcode makes for this
+# bundle id when a developer signs it with their own team, found among the
+# profiles installed on this machine, so that no team is named here.
+local_provisioning_profile(
+    name = "ios_device_profile",
+    profile_name = "iOS Team Provisioning Profile: com.google.ai.edge.modeldebugger.runner",
+    tags = ["manual"],
+)
+
+# The iOS App's version, of the LiteRT-LM it is built against
+# (llm/litert_lm:ios_app_version). Apple takes numbers alone for both
+# versions, which devicectl lists without launching the App:
+# CFBundleShortVersionString is the commit's date, YYYY.MM.DD, and
+# CFBundleVersion the first 12 hex digits of the commit, in decimal. The
+# whole commit is LiteRTLMCommit, for whoever reads the bundle.
+genrule(
+    name = "ios_version_plist",
+    srcs = ["//model_debugger/runner/llm/litert_lm:ios_app_version"],
+    outs = ["Info-ios-version.plist"],
+    cmd = " && ".join([
+        "version=$$(cat $<)",
+        "commit=$${version%% *}",
+        "date=$$(echo \"$$version\" | sed -n 's/.*(\\([0-9-]*\\)).*/\\1/p' | tr - .)",
+        "test -n \"$$date\"",
+        "build=$$(printf '%d' 0x$${commit:0:12})",
+        "printf '%s\\n' " +
+        "'<?xml version=\"1.0\" encoding=\"UTF-8\"?>' " +
+        "'<plist version=\"1.0\">' '<dict>' " +
+        "'  <key>CFBundleShortVersionString</key>' " +
+        "\"  <string>$$date</string>\" " +
+        "'  <key>CFBundleVersion</key>' " +
+        "\"  <string>$$build</string>\" " +
+        "'  <key>LiteRTLMCommit</key>' " +
+        "\"  <string>$$commit</string>\" " +
+        "'</dict>' '</plist>' > $@",
+    ]),
+    tags = ["manual"],
+)
+
+# iOS, for the simulator or a device:
+#   bazel build //model_debugger/runner/app/apple:ios --ios_multi_cpus=sim_arm64
+#   bazel build //model_debugger/runner/app/apple:ios --ios_multi_cpus=arm64
+# Manual, because //... is built for the machine, not for a phone. The
+# runtime and what it links are bundled by the rule as frameworks, and so are
+# its GPU plugins on a device; the simulator gets none.
+ios_application(
+    name = "ios",
+    app_icons = [":app_icon"],
+    bundle_id = "com.google.ai.edge.modeldebugger.runner",
+    bundle_name = "Model Debugger Runner",
+    families = [
+        "iphone",
+        "ipad",
+    ],
+    infoplists = [
+        "Info-ios.plist",
+        ":ios_version_plist",
+    ],
+    minimum_os_version = APPLE_MINIMUM_OS,
+    provisioning_profile = select({
+        "//model_debugger/runner/llm/litert_lm:ios_device": ":ios_device_profile",
+        "//conditions:default": None,
+    }),
+    resources = [":assets"],
+    tags = ["manual"],
+    deps = [":RunnerApp"] + select({
+        "//model_debugger/runner/llm/litert_lm:ios_device": [
+            "@litert_lm_ios_arm64//:gpu_library_imports",
+        ],
+        # The simulator has no GPU to run on, so it bundles no plugins.
+        "//conditions:default": [],
+    }),
+)

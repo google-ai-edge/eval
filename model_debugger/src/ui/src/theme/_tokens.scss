@@ -1,0 +1,182 @@
+/* stylelint-disable */
+/**
+ * @license
+ * Copyright 2026 The AI Edge Model Explorer Authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ * ==============================================================================
+ */
+
+// Application semantic tokens, written once with light-dark(). The only theme
+// switch is the data-theme attribute set by ThemeService; it selects the
+// color-scheme here and everything else follows.
+@use './model_explorer_colors' as me;
+:root {
+  color-scheme: light dark;
+  @include me.colors;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+:root {
+  --bg: light-dark(#f8f9fa, #202124);
+  --surface: light-dark(#fff, #292a2d);
+  --canvas: light-dark(#f1f3f4, #202124);
+  --hover: light-dark(#f1f3f4, #35363a);
+  --outline: light-dark(#dadce0, #3c4043);
+  --outline-s: light-dark(#bdc1c6, #5f6368);
+  --on1: light-dark(#202124, #e8eaed);
+  --on2: light-dark(#5f6368, #9aa0a6);
+  --on3: light-dark(#80868b, #a7adb4);
+  --pri: light-dark(#1a73e8, #8ab4f8);
+  --pri-c: light-dark(#e8f0fe, #1f3047);
+  --pri-on: light-dark(#174ea6, #d2e3fc);
+  --state: light-dark(rgba(26, 115, 232, 0.08), rgba(138, 180, 248, 0.12));
+  --c0: light-dark(#1e8e3e, #81c995);
+  --b0: light-dark(#e6f4ea, #1c2f21);
+  --c1: light-dark(#5bb974, #a8dab5);
+  --b1: light-dark(#eef8f1, #1e3a26);
+  --c2: light-dark(#f9ab00, #fdd663);
+  --b2: light-dark(#fef7e0, #332b10);
+  --c3: light-dark(#e8710a, #fcad70);
+  --b3: light-dark(#feefe3, #36261a);
+  --c4: light-dark(#d93025, #f28b82);
+  --b4: light-dark(#fce8e6, #3b2320);
+  --sans: Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --mono: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+:root {
+  --button-text: light-dark(#1f1f1f, #e3e3e3);
+  --button-secondary: light-dark(#444746, #c4c7c5);
+  --button-muted: light-dark(#5f6368, #c4c7c5);
+  --button-group: light-dark(#eef0f2, #292b2d);
+  --button-group-debug: light-dark(#e1e4e8, #3c4043);
+  --button-chat: light-dark(#fff, #444746);
+  --button-debug: light-dark(#85621b, #3e3829);
+  --button-focus: light-dark(#85621b, #d6b66c);
+  --button-hover: light-dark(rgba(31, 31, 31, 0.04), rgba(227, 227, 227, 0.04));
+  --button-press: light-dark(rgba(31, 31, 31, 0.12), rgba(227, 227, 227, 0.12));
+  --toolbar-divider: var(--me-surface-variant-color);
+  --debug-toolbar-divider: light-dark(
+    color-mix(in srgb, #85621b 30%, #fff8e6),
+    color-mix(in srgb, #d6b66c 30%, #302817)
+  );
+  --debug-dock-divider: light-dark(#e3e6eb, #3a3e44);
+  --debug-dock-bg: light-dark(
+    color-mix(in srgb, #fff8e6 25%, #fff),
+    color-mix(in srgb, #302817 25%, #1f1f1f)
+  );
+  --debug-dock-border: light-dark(
+    color-mix(in srgb, #85621b 40%, #dadce0),
+    color-mix(in srgb, #d6b66c 40%, #444746)
+  );
+  --debug-dock-shadow: 0 10px 30px rgba(35, 40, 48, 0.16), 0 3px 8px rgba(35, 40, 48, 0.1);
+  --button-stage-bg: light-dark(#eaf2ff, #293b56);
+  --button-stage-ink: light-dark(#1a73e8, #8ab4f8);
+}
+:root[data-theme='dark'] {
+  // Shadows are not colors; light-dark() cannot express the two shadow stacks.
+  --debug-dock-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 3px 8px rgba(0, 0, 0, 0.3);
+}
+:root {
+  --a-ink: var(--on1);
+  --a-mute: var(--on2);
+  --a-hair: var(--outline);
+  --a-panel: var(--surface);
+  --a-sunk: light-dark(#e6e9ec, #35363a);
+  --a-mono: var(--mono);
+  --a-sans: var(--sans);
+  --a-line: light-dark(#b8bec6, #5f6368);
+  --a-band: var(--surface);
+  --a-sel: var(--pri);
+}
+:root {
+  // Chart surfaces for src/widgets/charts. A panel may set its own on its host,
+  // as the KV panel does for the canvas.
+  --chart-canvas: var(--me-surface-container-color);
+  --chart-panel: var(--me-surface-color);
+  --chart-muted: var(--me-on-surface-variant-color);
+  --chart-line: var(--me-outline-hairline-color);
+  --chart-accent: var(--me-primary-color);
+  // The Reference and Target surfaces the intermediate tensors' structure graph paints its two
+  // sides with: the conversation page's own (conversation_panel.scss).
+  --chart-reference-surface: light-dark(#fafbfd, #26292e);
+  --chart-target-surface: var(--debug-target-surface, light-dark(#fffefa, #292824));
+}
+
+// Opt-in palette review. No stored preference and no change to data colors.
+:root:is(
+  [data-debug-palette='slate'],
+  [data-debug-palette='teal'],
+  [data-debug-palette='violet'],
+  [data-debug-palette='orange'],
+  [data-debug-palette='vscode'],
+  [data-debug-palette='jetbrains'],
+  [data-debug-palette='android-studio']
+) {
+  --button-debug: var(--debug-accent-solid);
+  --button-focus: var(--debug-status-ink);
+  --debug-toolbar-divider: var(--debug-target-border);
+  --debug-dock-divider: var(--debug-target-border);
+  --debug-dock-border: var(--debug-target-border);
+  --debug-dock-bg: var(--debug-target-surface);
+}
+:root[data-debug-palette='slate'] {
+  --debug-accent-solid: light-dark(#526b8a, #3d587b);
+  --debug-status-ink: light-dark(#526b8a, #a9bedb);
+  --debug-target-surface: light-dark(#f5f7fa, #242a33);
+  --debug-target-border: light-dark(#cbd5e1, #46556b);
+}
+:root[data-debug-palette='teal'] {
+  --debug-accent-solid: light-dark(#276d70, #265d62);
+  --debug-status-ink: light-dark(#276d70, #93c8c9);
+  --debug-target-surface: light-dark(#f2f8f7, #222e30);
+  --debug-target-border: light-dark(#c4dcd8, #405b5c);
+}
+:root[data-debug-palette='violet'] {
+  --debug-accent-solid: light-dark(#6b5b8e, #554771);
+  --debug-status-ink: light-dark(#6b5b8e, #c1b3df);
+  --debug-target-surface: light-dark(#f7f5fa, #2b2732);
+  --debug-target-border: light-dark(#d8d0e3, #574c68);
+}
+:root[data-debug-palette='orange'] {
+  --debug-accent-solid: light-dark(#a64b17, #85441f);
+  --debug-status-ink: light-dark(#a64b17, #edb18b);
+  --debug-target-surface: light-dark(#fafafa, #292a2d);
+  --debug-target-border: light-dark(#dadce0, #45474b);
+  --debug-dock-border: light-dark(#c86b34, #b7754e);
+}
+
+:root[data-debug-palette='vscode'] {
+  --debug-accent-solid: light-dark(#a7470c, #b95718);
+  --debug-dock-bg: light-dark(#fafafa, #35373c);
+  --debug-status-ink: light-dark(#a7470c, #efa879);
+  --debug-target-surface: light-dark(#fafafa, #252526);
+  --debug-target-border: light-dark(#d8d8d8, #454545);
+}
+:root[data-debug-palette='jetbrains'] {
+  --debug-accent-solid: light-dark(#3574f0, #315fbd);
+  --debug-status-ink: light-dark(#276b3b, #83c68d);
+  --debug-target-surface: light-dark(#f7f8fa, #2b2d30);
+  --debug-target-border: light-dark(#d3d5db, #43454a);
+}
+
+:root[data-debug-palette='android-studio'] {
+  --debug-accent-solid: light-dark(#1a73e8, #8ab4f8);
+  --debug-status-ink: light-dark(#287846, #81c995);
+  --debug-target-surface: light-dark(#f8f9fa, #2b2d30);
+  --debug-target-border: light-dark(#dadce0, #43454a);
+}

@@ -1,0 +1,176 @@
+<!--
+ Copyright 2026 The AI Edge Model Explorer Authors.
+
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+ ==============================================================================
+-->
+<header
+  class="topbar"
+  [class.home]="workspace.home()"
+  [class.debug]="!workspace.home() && workspace.mode() === 'Debug'"
+>
+  <button
+    class="brand"
+    [disabled]="workspace.home()"
+    aria-label="Model Debugger home"
+    (click)="workspace.goHome()"
+  >
+    <img src="debugger-logo.svg" alt="" /><span class="brand-label">Model Debugger</span>
+  </button>
+  @if (workspace.session()) {
+    <span class="spacer"></span>
+    <div class="session-context">
+      @if (workspace.runtime.selected(); as session) {
+        <model-server-switch [session]="session" [named]="true" />
+      }
+      <button
+        class="session-name"
+        cdkOverlayOrigin
+        #configurationOrigin="cdkOverlayOrigin"
+        [attr.aria-expanded]="configurationOpen()"
+        (click)="configurationOpen.set(!configurationOpen())"
+        aria-label="Configuration"
+        matTooltip="Configuration"
+      >
+        {{ workspace.sessionName() }}
+      </button>
+      <ng-template
+        overlayDialog
+        [origin]="configurationOrigin"
+        [open]="configurationOpen()"
+        placement="below-end"
+        (closed)="configurationOpen.set(false)"
+        ><configuration-overview overlayPanel aria-label="Configuration"
+      /></ng-template>
+      <span class="toolbar-divider chat-divider" aria-hidden="true"></span>
+      <chat-switcher />
+    </div>
+  } @else {
+    <span class="spacer"></span>
+  }
+  <div class="toolbar-actions">
+    @if (workspace.session()) {
+      <div class="mode-switch" role="group" aria-label="Workspace mode">
+        @for (mode of modeNames; track mode) {
+          @let permission = workspace.modes()[mode];
+          <!-- The hint sits on a wrapper: a disabled button shows no tooltip. -->
+          <span
+            class="mode-option"
+            [matTooltip]="permission.allowed ? mode : mode + ': ' + permission.reason"
+            ><button
+              [disabled]="!permission.allowed"
+              [class.selected]="workspace.mode() === mode"
+              [attr.aria-pressed]="workspace.mode() === mode"
+              (click)="workspace.setMode(mode)"
+              [attr.data-mode]="mode.toLowerCase()"
+              [attr.aria-label]="mode"
+              [attr.aria-description]="permission.allowed ? null : permission.reason"
+            >
+              <span class="button-icon" aria-hidden="true">{{
+                mode === 'Chat' ? 'chat_bubble_outline' : 'bug_report'
+              }}</span>
+            </button></span
+          >
+        }
+      </div>
+      <span class="toolbar-divider toolbar-end-divider" aria-hidden="true"></span>
+    }
+    <nav class="global-tools" aria-label="Application tools">
+      <button
+        mat-icon-button
+        aria-label="Advanced settings"
+        matTooltip="Advanced settings"
+        (click)="settings()"
+      >
+        <mat-icon>settings</mat-icon>
+      </button>
+      <a
+        mat-icon-button
+        href="https://github.com/google-ai-edge/model-explorer"
+        target="_blank"
+        rel="noopener"
+        aria-label="Documentation"
+        matTooltip="Documentation"
+        ><mat-icon>article</mat-icon></a
+      >
+      <a
+        mat-icon-button
+        href="https://github.com/google-ai-edge/model-explorer/issues"
+        target="_blank"
+        rel="noopener"
+        aria-label="Report an issue"
+        matTooltip="Report an issue"
+        ><mat-icon>bug_report</mat-icon></a
+      >
+      @if (theme.paletteReview) {
+        <button mat-button aria-label="Debug palette" [matMenuTriggerFor]="paletteMenu">
+          <mat-icon>palette</mat-icon>Debug palette
+        </button>
+      }
+      <button mat-icon-button aria-label="Theme" matTooltip="Theme" [matMenuTriggerFor]="themeMenu">
+        <mat-icon>{{ theme.icon() }}</mat-icon>
+      </button>
+      @if (workspace.home()) {
+        <button
+          mat-icon-button
+          aria-label="About"
+          matTooltip="About"
+          [matMenuTriggerFor]="aboutMenu"
+          #aboutTrigger="matMenuTrigger"
+        >
+          <mat-icon>info_outline</mat-icon>
+        </button>
+      }
+    </nav>
+  </div>
+</header>
+<mat-menu #themeMenu="matMenu">
+  @for (choice of themes; track choice) {
+    <button
+      mat-menu-item
+      [class.theme-selected]="theme.preference() === choice"
+      (click)="theme.setPreference(choice)"
+      role="menuitemradio"
+      [attr.aria-checked]="theme.preference() === choice"
+    >
+      <mat-icon>{{
+        choice === 'system' ? 'brightness_auto' : choice === 'light' ? 'light_mode' : 'dark_mode'
+      }}</mat-icon
+      >{{
+        choice === 'system'
+          ? 'System default (' + (theme.systemDark() ? 'dark' : 'light') + ')'
+          : choice === 'light'
+            ? 'Light mode'
+            : 'Dark mode'
+      }}
+    </button>
+  }
+</mat-menu>
+<mat-menu #aboutMenu="matMenu"
+  ><button mat-menu-item (click)="about()">Open source libraries</button>
+  <div class="version">v0.1.0</div></mat-menu
+>
+
+<mat-menu #paletteMenu="matMenu">
+  @for (palette of theme.debugPalettes; track palette.id) {
+    <button
+      mat-menu-item
+      role="menuitemradio"
+      [attr.aria-checked]="theme.debugPalette() === palette.id"
+      (click)="theme.setDebugPalette(palette.id)"
+    >
+      <mat-icon>{{ theme.debugPalette() === palette.id ? 'check' : 'palette' }}</mat-icon>
+      {{ palette.label }}
+    </button>
+  }
+</mat-menu>

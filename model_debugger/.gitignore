@@ -1,0 +1,11 @@
+.DS_Store
+.vscode/
+__pycache__/
+.ruff_cache/
+bazel-*
+*.profraw
+
+# Generated: the UI's build and tests.
+node_modules/
+dist/
+.angular/

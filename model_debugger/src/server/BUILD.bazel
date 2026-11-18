@@ -1,0 +1,90 @@
+# Copyright 2026 The AI Edge Model Explorer Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# The Server's workspace root: its pinned PyPI packages, the toolchain that
+# protoc's Python output runs on, ruff, and the wheel for PyPI.
+
+load("@bazel_skylib//rules:native_binary.bzl", "native_binary")
+load("@protobuf//bazel/toolchains:proto_lang_toolchain.bzl", "proto_lang_toolchain")
+load("@rules_python//python:packaging.bzl", "py_package", "py_wheel")
+load("@rules_python//python:pip.bzl", "compile_pip_requirements")
+
+# Pins requirements_test.in, and so requirements.in, with hashes into
+# requirements_lock.txt: bazel run //:requirements.update. Its test fails when
+# the lock no longer matches.
+compile_pip_requirements(
+    name = "requirements",
+    src = "requirements_test.in",
+    data = ["requirements.in"],
+    requirements_txt = "requirements_lock.txt",
+)
+
+# The Python messages run on the protobuf package from PyPI, as they do once
+# the wheel is installed. protobuf's py_proto_library also writes struct_pb2
+# for the proto's import, under @protobuf's _virtual_imports, whatever the
+# toolchain says; PyPI's google.protobuf is a regular package and so wins.
+proto_lang_toolchain(
+    name = "python_proto",
+    command_line = "--python_out=%s",
+    progress_message = "Generating Python proto_library %{label}",
+    runtime = "@server_pypi//protobuf",
+    toolchain_type = "@protobuf//bazel/private:python_toolchain_type",
+)
+
+# The Python linter and formatter, at the version requirements_lock.txt pins:
+#   bazel run //:ruff -- check "${PWD}/model_debugger"
+# Bazel runs it from elsewhere, so files go by absolute path; it finds its
+# configuration beside them.
+native_binary(
+    name = "ruff",
+    src = "@server_pypi//ruff:data",
+    out = "ruff",
+)
+
+# What the wheel holds besides the UI: the package model_debugger, from this
+# repository and from @protocol, and none of the PyPI packages it depends on.
+py_package(
+    name = "wheel_files",
+    packages = ["model_debugger"],
+    deps = ["//model_debugger/server/cli:server_main"],
+)
+
+# The Server for PyPI, with the command model-debugger-server, and the built
+# UI it serves, under model_debugger/server/ui/; it requires what
+# requirements.in lists. Build the UI first (src/ui: npm ci && npm run build),
+# then:
+#   bazel build //:wheel
+# It is the one target that needs the UI, so //... leaves it out.
+py_wheel(
+    name = "wheel",
+    abi = "none",
+    description_file = "README.md",
+    distribution = "model-debugger-server",
+    entry_points = {
+        "console_scripts": [
+            "model-debugger-server = model_debugger.server.cli.server_main:run",
+        ],
+    },
+    platform = "any",
+    python_requires = ">=3.11",
+    python_tag = "py3",
+    requires_file = "requirements.in",
+    summary = "The Server of the Model Debugger.",
+    tags = ["manual"],
+    version = "0.0.0",
+    deps = [
+        ":wheel_files",
+        "@built_ui//:ui",
+    ],
+)

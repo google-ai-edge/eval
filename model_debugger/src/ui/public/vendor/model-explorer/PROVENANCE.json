@@ -1,0 +1,11 @@
+{
+  "package": "ai-edge-model-explorer-visualizer",
+  "version": "0.1.2",
+  "url": "https://registry.npmjs.org/ai-edge-model-explorer-visualizer/-/ai-edge-model-explorer-visualizer-0.1.2.tgz",
+  "sha1": "03787282b2751df9f751ec78e9751ee8729e28ad",
+  "sha256": {
+    "worker.js": "f857968b63b0a40fb48ed2d63d50e86a73be943c558f4098fd44855735efd738"
+  },
+  "sha256_verified_date": "2026-11-03",
+  "license": "Apache-2.0 (see public/licenses/model-explorer.txt)"
+}
