@@ -171,7 +171,6 @@ export class ConversationPanel implements OnDestroy {
     );
     conversation.virtualizer = conversation.zone.runOutsideAngular(() =>
       createFlowVirtualizer({
-        threshold: 2048,
         getTurn: (turn) => conversation.virtualModels().get(turn) ?? emptyTurn,
         getRows: (turn) => conversation.virtualModels().get(turn)?.rows ?? [],
         getAlignment: () => conversation.alignment(),

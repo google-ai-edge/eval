@@ -136,11 +136,21 @@ export class WorkspaceStateService {
     }
   }
   readonly chatDrafts = signal(this.restored.drafts);
+  private readonly untouchedRestoredDrafts = new Set(Object.keys(this.restored.drafts));
   private readonly draftKey = computed(() => this.selectedId() ?? '');
   readonly chatDraft = computed(() => this.chatDrafts()[this.draftKey()] ?? '');
+  /** Says, once a draft is longer than the browser keeps, that a reload cuts it. */
+  readonly draftNotice = computed(() =>
+    this.chatDraft().length > MAX_DRAFT_LENGTH
+      ? `Only the first ${MAX_DRAFT_LENGTH} characters of this draft are saved; ` +
+        'a reload brings back no more.'
+      : '',
+  );
   setChatDraft(value: string): void {
     if (this.selectedId()) {
-      this.chatDrafts.update((d) => ({...d, [this.draftKey()]: value.slice(0, MAX_DRAFT_LENGTH)}));
+      const key = this.draftKey();
+      this.untouchedRestoredDrafts.delete(key);
+      this.chatDrafts.update((d) => ({...d, [key]: value}));
     }
   }
   /** Whether the chat shown kept a turn. */
@@ -334,14 +344,28 @@ export class WorkspaceStateService {
         !this.completedDrafts.has(job.id)
       ) {
         this.completedDrafts.add(job.id);
-        if (job.prompt && this.chatDraft() === job.prompt) {
+        const draft = this.chatDraft();
+        if (
+          job.prompt &&
+          (draft === job.prompt ||
+            (this.untouchedRestoredDrafts.has(this.draftKey()) &&
+              draft === job.prompt.slice(0, MAX_DRAFT_LENGTH)))
+        ) {
           this.setChatDraft('');
         }
       }
     });
     // Drafts change on every keystroke; write them at most every 300 ms and on page hide.
     effect(() => {
-      const data = {version: 1, drafts: this.chatDrafts()};
+      // Storage keeps each draft cut to MAX_DRAFT_LENGTH; the page keeps it whole, so a draft
+      // over the upload limit is still shown, and refused, as typed.
+      const drafts = Object.fromEntries(
+        Object.entries(this.chatDrafts()).map(([key, value]) => [
+          key,
+          value.slice(0, MAX_DRAFT_LENGTH),
+        ]),
+      );
+      const data = {version: 1, drafts};
       this.pendingStorage = data;
       if (this.storageTimer !== null) {
         clearTimeout(this.storageTimer);

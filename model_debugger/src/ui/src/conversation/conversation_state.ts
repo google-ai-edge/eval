@@ -37,7 +37,7 @@ import {ConversationReadingController} from './conversation_reading_controller';
 import {createConversationScrollbar} from './conversation_scrollbar';
 import {streamingConversation, virtualConversation} from './conversation_virtualization';
 import type {FlowNodeNavigator} from './flow_node_navigation';
-import type {FlowVirtualizer} from './flow_virtualization';
+import {TEMPLATE_TOKEN_LIMIT, type FlowVirtualizer} from './flow_virtualization';
 import {readTurns, rejectedTurns} from './rejected_turn/rejected_turn';
 import type {AlignmentMode} from './token_alignment';
 
@@ -258,7 +258,7 @@ export class ConversationState {
   virtualOutput(turn: number): boolean {
     const model = this.virtualModels().get(turn);
     return (
-      (model?.rows.length ?? 0) > 2048 &&
+      (model?.rows.length ?? 0) > TEMPLATE_TOKEN_LIMIT &&
       (this.workspace.mode() === 'Debug' || !!model?.responseTextComplete)
     );
   }
@@ -272,7 +272,10 @@ export class ConversationState {
 
   virtualInput(turn: number): boolean {
     const t = this.virtualModels().get(turn);
-    return Math.max(t?.inputTokens.ref.length ?? 0, t?.inputTokens.target.length ?? 0) > 2048;
+    return (
+      Math.max(t?.inputTokens.ref.length ?? 0, t?.inputTokens.target.length ?? 0) >
+      TEMPLATE_TOKEN_LIMIT
+    );
   }
 
   /** The turn after a read turn, which may be a rejected one; undefined after the last. */

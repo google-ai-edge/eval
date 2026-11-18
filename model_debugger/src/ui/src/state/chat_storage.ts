@@ -27,7 +27,10 @@ export interface StoredChats {
 export function emptyChats(): StoredChats {
   return {drafts: {}};
 }
-/** Applied on write and on read; longer drafts are truncated rather than lost. */
+/**
+ * The most characters of a draft kept in the browser's storage, on write and on read; the page
+ * keeps the whole draft while it is open.
+ */
 export const MAX_DRAFT_LENGTH = 16000;
 /**
  * Keep only drafts of Sessions the server still lists, each under its Session's id: a key of an

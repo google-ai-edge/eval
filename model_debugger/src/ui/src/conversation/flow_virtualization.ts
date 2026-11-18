@@ -116,9 +116,14 @@ type FlowHost = HTMLElement & {
 };
 
 const OVERSCAN = 0.15;
+/**
+ * The most tokens a turn's side has for it to keep the Angular templates; a longer one is
+ * rendered by the flow virtualizer.
+ */
+export const TEMPLATE_TOKEN_LIMIT = 2048;
 export function createFlowVirtualizer(config: FlowConfig): FlowVirtualizer {
   const lineHeight = () => config.lineHeight?.() || 26;
-  const threshold = config.threshold || 2048;
+  const threshold = config.threshold ?? TEMPLATE_TOKEN_LIMIT;
   const layouts = new Map<string, FlowLayout>();
   const widthCache = new Map<string, number>();
   const inputRowCache = new WeakMap<FlowTurn, FlowRow[]>();

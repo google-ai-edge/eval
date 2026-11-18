@@ -22,6 +22,7 @@ import {By} from '@angular/platform-browser';
 import {provideRouter} from '@angular/router';
 
 import type {DecodeComparison, Session} from '../../server/contracts/capture';
+import {MAX_DRAFT_LENGTH} from '../../state/chat_storage';
 import {HOME} from '../../state/page_address/page_address';
 import {WorkspaceStateService} from '../../state/workspace_state_service';
 import {MAX_PROMPT_BYTES} from '../composer/conversation_composer';
@@ -32,6 +33,7 @@ import {DebugAddress} from '../debug/debug_address';
 import {ConversationViews} from '../debug/saved_views/conversation_views';
 import {AnalysisPanels} from '../debug/stage_analysis_rail/analysis_panels';
 import {TokenDiff} from '../debug/token_diff/token_diff';
+import {TEMPLATE_TOKEN_LIMIT} from '../flow_virtualization';
 import type {TokenColor} from '../token_analysis';
 import {ConversationPanel} from './conversation_panel';
 
@@ -121,13 +123,13 @@ function sampleSession(): Session {
 }
 
 /**
- * sampleSession() with more captured tokens per side than a turn renders with templates (2048),
- * so the flow virtualizer renders and selects its tokens.
+ * sampleSession() with more captured tokens per side than a turn renders with templates
+ * (TEMPLATE_TOKEN_LIMIT), so the flow virtualizer renders and selects its tokens.
  */
 function virtualizedSession(): Session {
   const session = sampleSession();
   const tokens = (word: string) =>
-    Array.from({length: 2049}, (_, step) => ({step, text: step ? ' ' : word}));
+    Array.from({length: TEMPLATE_TOKEN_LIMIT + 1}, (_, step) => ({step, text: step ? ' ' : word}));
   return {
     ...session,
     conversation: (session.conversation ?? []).map((entry) => ({
@@ -249,10 +251,9 @@ describe('ConversationPanel', () => {
     const host = page.fixture.nativeElement as HTMLElement;
     expect(host.querySelector('.chat-warnings')).toBeNull();
 
-    // A typed draft is kept to MAX_DRAFT_LENGTH characters, far below the upload limit, so
-    // the oversized draft is written to the store directly.
+    // Drafts are kept per Session: one must be open to hold one.
     page.workspace.address.set({...HOME, session: 's1'});
-    page.workspace.chatDrafts.set({s1: 'x'.repeat(MAX_PROMPT_BYTES + 1)});
+    page.workspace.setChatDraft('x'.repeat(MAX_PROMPT_BYTES + 1));
     page.workspace.storageError.set('Local storage quota exceeded.');
     page.address.notice.set('Requested turn is unavailable.');
     page.views.viewNotice.set('Restored saved view');
@@ -263,10 +264,27 @@ describe('ConversationPanel', () => {
     );
     expect(warnings).toEqual([
       'Message exceeds the 4 MiB upload limit. Your full draft is retained.',
+      `Only the first ${MAX_DRAFT_LENGTH} characters of this draft are saved; ` +
+        'a reload brings back no more.',
       'Local storage quota exceeded.',
       'Requested turn is unavailable.',
     ]);
     expect(host.querySelector('.view-notice')?.textContent).toBe('Restored saved view');
+
+    page.workspace.address.set({...HOME, session: 's1', mode: 'Debug'});
+    page.fixture.detectChanges();
+    const debugWarnings = Array.from(host.querySelectorAll('.chat-warnings .chat-warning')).map(
+      (el) => el.textContent?.trim(),
+    );
+    expect(debugWarnings).toEqual([
+      'Local storage quota exceeded.',
+      'Requested turn is unavailable.',
+    ]);
+
+    page.workspace.storageError.set('');
+    page.address.notice.set('');
+    page.fixture.detectChanges();
+    expect(host.querySelector('.chat-warnings')).toBeNull();
     page.fixture.destroy();
   });
 

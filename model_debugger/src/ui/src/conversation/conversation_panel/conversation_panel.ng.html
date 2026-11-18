@@ -21,10 +21,17 @@
   <chat-reading [tokenColor]="tokens.color()" [gapPalette]="tokens.heatPalette(tokens.color())" />
 }
 <span class="view-notice" role="status">{{ views.viewNotice() }}</span>
-@if (composer.promptError() || workspace.storageError() || address.notice()) {
+@if (
+  (workspace.mode() === 'Chat' && (composer.promptError() || workspace.draftNotice())) ||
+  workspace.storageError() ||
+  address.notice()
+) {
   <div class="chat-warnings">
-    @if (composer.promptError()) {
+    @if (workspace.mode() === 'Chat' && composer.promptError()) {
       <p class="chat-warning" role="alert">{{ composer.promptError() }}</p>
+    }
+    @if (workspace.mode() === 'Chat' && workspace.draftNotice()) {
+      <p class="chat-warning" role="alert">{{ workspace.draftNotice() }}</p>
     }
     @if (workspace.storageError()) {
       <p class="chat-warning" role="alert">{{ workspace.storageError() }}</p>

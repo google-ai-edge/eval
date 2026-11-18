@@ -18,7 +18,7 @@
 
 import type {CapturedConversation, TurnComparison} from '../server/contracts/capture';
 import {comparisonPairs, type AlignmentMode, type TokenPair} from './token_alignment';
-import type {FlowRow, FlowTurn} from './flow_virtualization';
+import {TEMPLATE_TOKEN_LIMIT, type FlowRow, type FlowTurn} from './flow_virtualization';
 import {capturedTokenLabel, escapeHtml, tokenMarkup} from './conversation_content';
 
 /** Display chunks preserve the text; they are not claimed to be model tokens. */
@@ -106,7 +106,7 @@ function buildVirtualConversation(
     target: longInput ? capturedInputChunks(target, inputs.target) : [],
   };
   // Small turns retain their existing Angular templates and alignment path.
-  if (Math.max(captured.ref?.length ?? 0, captured.target?.length ?? 0) <= 2048) {
+  if (Math.max(captured.ref?.length ?? 0, captured.target?.length ?? 0) <= TEMPLATE_TOKEN_LIMIT) {
     return {
       steps: {ref: [], target: []},
       inputTokens,

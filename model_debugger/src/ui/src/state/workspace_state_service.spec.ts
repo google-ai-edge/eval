@@ -28,6 +28,7 @@ import {SessionListService} from '../server/session_list_service';
 import type {RuntimeJob} from '../server/contracts/jobs';
 import type {SessionSummary} from '../server/contracts/sessions';
 import {allowed, chat, refused, session} from '../server/testing/session_fixtures';
+import {MAX_DRAFT_LENGTH} from './chat_storage';
 import {WorkspaceStateService} from './workspace_state_service';
 
 const startable = {...session().actions, new_chat: allowed};
@@ -75,7 +76,10 @@ function fakeRouter() {
 describe('WorkspaceStateService', () => {
   // Nothing is stored: each page starts with no drafts.
   beforeEach(() => vi.stubGlobal('localStorage', {getItem: () => null, setItem() {}}));
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
 
   it("the attachments follow the resolved context automatically and only on change: the runtime the Session's, the capture its chat's", () => {
     const attached: Array<string | null> = [];
@@ -237,6 +241,92 @@ describe('WorkspaceStateService', () => {
     expect(router.url).toBe('/?debugPalette=teal');
     workspace.showDebugPlace({turn: 1, stage: null, analysis: null});
     expect(router.url, 'no Debug place off a Debug page').toBe('/?debugPalette=teal');
+  });
+
+  it('keeps a long draft whole in the page and cut to MAX_DRAFT_LENGTH in storage', () => {
+    vi.useFakeTimers();
+    const stored: string[] = [];
+    vi.stubGlobal('localStorage', {
+      getItem: () => null,
+      setItem: (_key: string, value: string) => stored.push(value),
+    });
+    const router = fakeRouter();
+    TestBed.configureTestingModule({
+      providers: [
+        {provide: SessionListService, useValue: {items: () => records, listing: () => null}},
+        {provide: CaptureStore, useValue: {attach() {}, load: async () => {}}},
+        {
+          provide: RuntimeService,
+          useValue: {attach: async () => {}, selected: () => null, follow: async () => {}},
+        },
+        {provide: JobsService, useValue: {job: () => null}},
+        {provide: Router, useValue: router},
+      ],
+    });
+    const workspace = TestBed.inject(WorkspaceStateService);
+    router.navigateByUrl('/sessions/parent');
+    const draft = 'x'.repeat(MAX_DRAFT_LENGTH + 5);
+    workspace.setChatDraft(draft);
+    TestBed.tick();
+    // Storage is written at most every 300 ms.
+    vi.advanceTimersByTime(300);
+    expect(workspace.chatDraft()).toBe(draft);
+    expect(workspace.draftNotice()).toContain(String(MAX_DRAFT_LENGTH));
+    expect(JSON.parse(stored.at(-1)!).drafts['parent']).toBe(draft.slice(0, MAX_DRAFT_LENGTH));
+    workspace.setChatDraft('short');
+    expect(workspace.draftNotice()).toBe('');
+  });
+
+  it('clears a restored truncated draft only if untouched when a over-limit turn completes', () => {
+    const prompt = 'x'.repeat(MAX_DRAFT_LENGTH + 5);
+    const truncated = prompt.slice(0, MAX_DRAFT_LENGTH);
+    vi.stubGlobal('localStorage', {
+      getItem: () => JSON.stringify({version: 1, drafts: {parent: truncated, other: truncated}}),
+      setItem() {},
+    });
+    const router = fakeRouter();
+    const job = signal<RuntimeJob | null>(null);
+    TestBed.configureTestingModule({
+      providers: [
+        {provide: SessionListService, useValue: {items: () => records, listing: () => null}},
+        {provide: CaptureStore, useValue: {attach() {}, load: async () => {}}},
+        {
+          provide: RuntimeService,
+          useValue: {attach: async () => {}, selected: () => null, follow: async () => {}},
+        },
+        {provide: JobsService, useValue: {job}},
+        {provide: Router, useValue: router},
+      ],
+    });
+    const workspace = TestBed.inject(WorkspaceStateService);
+    const completed = (id: string, sessionId: string): RuntimeJob => ({
+      id,
+      session_id: sessionId,
+      operation: 'generate',
+      status: 'completed',
+      error: '',
+      sequence: 1,
+      output: {},
+      reasoning: {},
+      turn: 1,
+      chat: 1,
+      prompt,
+    });
+
+    router.navigateByUrl('/sessions/parent');
+    TestBed.tick();
+    expect(workspace.chatDraft()).toBe(truncated);
+    job.set(completed('gen-1', 'parent'));
+    TestBed.tick();
+    expect(workspace.chatDraft()).toBe('');
+
+    // Re-entering or editing the prefix marks the draft touched so completion preserves it.
+    router.navigateByUrl('/sessions/other');
+    TestBed.tick();
+    workspace.setChatDraft(truncated);
+    job.set(completed('gen-2', 'other'));
+    TestBed.tick();
+    expect(workspace.chatDraft()).toBe(truncated);
   });
 
   describe('the chats and modes the server allows', () => {
