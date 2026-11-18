@@ -51,6 +51,8 @@ export interface GraphArchTag {
   shape: string;
   /** Where it is in the signature's graph ('' if unbound). */
   source: string;
+  /** The formatted operator name of the point, when observed. */
+  operator?: string;
 }
 /** An anchor's place in one side's graph, for the execution graph to open at: its tensor's node
  *  and output there, and its tap point (null for a signature input). */
@@ -117,6 +119,20 @@ export interface GraphArchModel {
 const SIDES: GraphSide[] = ['ref', 'target'];
 const EMPTY_BG = 'var(--metric-empty-bg)';
 const EMPTY_FG = 'var(--muted)';
+
+/** Formats an operator name from tap scanning for display. */
+export function formatPointOperator(operator?: string): string {
+  const trimmed = (operator ?? '').trim();
+  if (!trimmed) {
+    return '';
+  }
+  for (const prefix of ['STABLEHLO_COMPOSITE ', 'CUSTOM ']) {
+    if (trimmed.startsWith(prefix)) {
+      return trimmed.slice(prefix.length).trim();
+    }
+  }
+  return /^[A-Z0-9_]+$/.test(trimmed) ? trimmed.toLowerCase() : trimmed;
+}
 
 /** What the Graph Diff needs to draw a model, from the server's answers: its graph's status and
  *  architecture, each side's, and the stage's intermediate tensors at the selected column. It
@@ -225,7 +241,11 @@ export function graphArchModel(input: {
           reasonText(row?.reasons) ||
           reasonText(point.reasons as Reason[]) ||
           (row ? '' : 'The stage has no cell of this point at the column.');
-        points[side][point.id] = tag(point.id, value, why, true, '', '', input);
+        const operator = formatPointOperator(point.operator);
+        points[side][point.id] = {
+          ...tag(point.id, value, why, true, '', '', input),
+          ...(operator ? {operator} : {}),
+        };
       }
     }
   }

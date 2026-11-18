@@ -72,6 +72,7 @@ export interface ObservedPoint {
   shape: number[];
   context_axes: number[];
   dtype: string;
+  operator?: string;
   /** Its node in the model's graph: the signature's graph, the operator, its output; null for a
    *  point of no graph (a PyTorch runner's anchor). */
   graph_node?: {graph: string; node: string; output: string} | null;
