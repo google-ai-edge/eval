@@ -299,6 +299,78 @@ describe('LayerActivationInspection', () => {
     expect(api.positionTensor).toHaveBeenCalledTimes(requestCount);
     fixture.destroy();
   });
+  it('offers each layer its own points, maps a point across layers, and labels it briefly', async () => {
+    const {fixture, view, api} = create(undefined, {
+      plot: 'index',
+      position: 32,
+      layer: 0,
+      anchor: 'decode:36:0',
+    });
+    const name = (layer: number, op: string) =>
+      `litert_torch.generative.Qwen3/Qwen3DecoderLayer_${layer}/litert_torch.attn.${op}`;
+    const info = (layer: number, op: string) => ({
+      layers: [layer],
+      tensorName: name(layer, op),
+      signature: 'decode',
+    });
+    fixture.componentRef.setInput('anchors', [
+      'output',
+      'decode:36:0',
+      'decode:40:0',
+      'decode:73:0',
+      'decode:300:0',
+    ]);
+    fixture.componentRef.setInput('anchorLabels', {
+      output: 'Layer output',
+      'decode:36:0': `${name(0, 'FusedQwen3Attention_self_attn;4')} · decode:36:0`,
+    });
+    fixture.componentRef.setInput('anchorPoints', {
+      output: {layers: [0, 2, 7], tensorName: name(0, 'add;1'), signature: 'decode'},
+      'decode:36:0': info(0, 'FusedQwen3Attention_self_attn;4'),
+      'decode:40:0': info(0, 'Linear_o_proj;0'),
+      'decode:73:0': info(2, 'FusedQwen3Attention_self_attn;4'),
+      'decode:300:0': info(2, 'Linear_down_proj;0'),
+    });
+    await settle(fixture);
+
+    const syncPoint = () => view.tensorIndexDimensions()[1];
+    expect(syncPoint().options).toEqual(['output', 'decode:36:0', 'decode:40:0']);
+    expect(syncPoint().optionLabels?.['decode:36:0']).toBe(
+      'FusedQwen3Attention_self_attn · decode:36:0',
+    );
+    expect(syncPoint().optionLabels?.['output']).toBe('Layer output');
+    expect(syncPoint().optionDescriptions?.['decode:40:0']).toBe(name(0, 'Linear_o_proj;0'));
+    expect(syncPoint().optionDescriptions?.['output']).toBeUndefined();
+
+    // Layer 2 has no point of layer 0: the same operator there takes its place.
+    view.setLayer(2);
+    await settle(fixture);
+
+    expect(syncPoint().options).toEqual(['output', 'decode:73:0', 'decode:300:0']);
+    expect(view.anchor()).toBe('decode:73:0');
+    expect(api.positionTensor.mock.calls.at(-1)?.[3]).toMatchObject({
+      layer: 2,
+      anchor: 'decode:73:0',
+    });
+
+    view.setAnchor('decode:36:0');
+    expect(view.anchor()).toBe('decode:73:0');
+
+    // Layer 0 has no down_proj point: back to the layer output.
+    view.setAnchor('decode:300:0');
+    view.setLayer(0);
+    await settle(fixture);
+
+    expect(view.anchor()).toBe('output');
+
+    // An anchor of every layer stays when the layer changes.
+    view.setLayer(7);
+    await settle(fixture);
+
+    expect(view.anchor()).toBe('output');
+    expect(syncPoint().options).toEqual(['output']);
+    fixture.destroy();
+  });
   it('keeps an unavailable saved sync point instead of substituting a different tensor', async () => {
     const {fixture, view, api} = create(
       async (_capture, _turn, _phase, query) => ({

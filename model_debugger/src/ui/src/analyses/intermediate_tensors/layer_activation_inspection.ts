@@ -24,6 +24,7 @@ import {
   effect,
   inject,
   input,
+  linkedSignal,
   output,
   signal,
   untracked,
@@ -51,6 +52,14 @@ import {ValueRangeControl} from '../../widgets/charts/value_range_control';
 import {ViewActions} from '../../widgets/charts/view_actions';
 import {RuntimeLegend} from '../../widgets/charts/runtime_legend';
 import {TENSOR_POINT_LABELS} from './tensor_labels';
+import {
+  hasSyncPointInLayer,
+  syncPointDescription,
+  syncPointInLayer,
+  syncPointLabel,
+  syncPointsForLayer,
+  type SyncPointInfo,
+} from './sync_points';
 import {
   TensorIndexControl,
   type TensorIndexChange,
@@ -379,6 +388,9 @@ export class LayerActivationInspection {
   readonly anchors = input<readonly string[]>([]);
   /** The server's label of each sync point. */
   readonly anchorLabels = input<Readonly<Record<string, string>>>({});
+  /** Which layers each sync point is of, and its tensor; a point chosen inside the layers is one
+   *  layer's, so Tensor Index offers it with that layer only. */
+  readonly anchorPoints = input<Readonly<Record<string, SyncPointInfo>>>({});
   readonly initial = input<LayerActivationInspectionState | null>(null);
   readonly initialPosition = input<number | null>(null);
   readonly initialLayer = input<number | null>(null);
@@ -400,7 +412,20 @@ export class LayerActivationInspection {
   private readonly retryCount = signal(0);
   private readonly chosenPosition = signal<number | null>(null);
   private readonly chosenLayer = signal<number | null>(null);
-  readonly anchor = signal('output');
+  readonly anchor = linkedSignal<
+    {layer: number | null; points: Readonly<Record<string, SyncPointInfo>>},
+    string
+  >({
+    source: () => ({layer: this.layer(), points: this.anchorPoints()}),
+    computation: ({layer, points}, previous) => {
+      const current = previous?.value ?? 'output';
+      const point = Object.hasOwn(points, current) ? points[current] : undefined;
+      if (hasSyncPointInLayer(point, layer)) {
+        return current;
+      }
+      return syncPointInLayer(current, this.syncPointsOf(layer), points) ?? current;
+    },
+  });
   readonly plot = signal<'index' | 'scatter'>('index');
   readonly position = computed(() => {
     const range = this.fullRange();
@@ -429,10 +454,44 @@ export class LayerActivationInspection {
       id: 'anchor',
       label: 'Sync point',
       value: this.anchor(),
-      options: this.anchors().length ? this.anchors() : ['output'],
-      optionLabels: {...TENSOR_POINT_LABELS, ...this.anchorLabels()},
+      options: this.syncPoints(),
+      optionLabels: this.syncPointLabels(),
+      optionDescriptions: this.syncPointDescriptions(),
     },
   ]);
+  /** Returns the sync points of `layer`: unknown anchors and anchors observed in `layer`. */
+  private syncPointsOf(layer: number | null): string[] {
+    const anchors = this.anchors().length ? this.anchors() : ['output'];
+    return syncPointsForLayer({
+      anchors,
+      info: this.anchorPoints(),
+      layer,
+    });
+  }
+  private readonly syncPoints = computed(() => this.syncPointsOf(this.layer()));
+  /** Short labels: `Linear_o_proj · decode:183:0`; named anchors keep the server's label. */
+  private readonly syncPointLabels = computed<Record<string, string>>(() => {
+    const labels: Record<string, string> = {...TENSOR_POINT_LABELS, ...this.anchorLabels()};
+    for (const anchor of this.syncPoints()) {
+      labels[anchor] = syncPointLabel({
+        anchor,
+        info: this.anchorPoints()[anchor],
+        serverLabel: labels[anchor],
+      });
+    }
+    return labels;
+  });
+  private readonly syncPointDescriptions = computed<Record<string, string>>(() => {
+    const descriptions: Record<string, string> = {};
+    const points = this.anchorPoints();
+    for (const anchor of this.syncPoints()) {
+      const description = syncPointDescription(anchor, points[anchor]);
+      if (description) {
+        descriptions[anchor] = description;
+      }
+    }
+    return descriptions;
+  });
   readonly selectedIndex = signal<number | null>(null);
   readonly selection = computed(() => {
     const index = this.selectedIndex();
@@ -532,7 +591,16 @@ export class LayerActivationInspection {
         this.plot.set(saved?.plot === 'scatter' ? 'scatter' : 'index');
         this.chosenPosition.set(saved?.position ?? position);
         this.chosenLayer.set(saved?.layer ?? layer);
-        this.anchor.set(saved?.anchor ?? 'output');
+        const initialAnchor = saved?.anchor ?? 'output';
+        const activeLayer = this.layer();
+        const points = this.anchorPoints();
+        const point = Object.hasOwn(points, initialAnchor) ? points[initialAnchor] : undefined;
+        this.anchor.set(
+          hasSyncPointInLayer(point, activeLayer)
+            ? initialAnchor
+            : (syncPointInLayer(initialAnchor, this.syncPointsOf(activeLayer), points) ??
+                initialAnchor),
+        );
         this.savedElementRange.set(
           saved?.elementRange && validValueRange(saved.elementRange) ? saved.elementRange : null,
         );
@@ -676,12 +744,16 @@ export class LayerActivationInspection {
     if (!this.layers().includes(layer)) {
       return;
     }
+    const previousAnchor = this.anchor();
     this.chosenLayer.set(layer);
+    // `anchor` is a linkedSignal that synchronously remaps to the matching operator in `layer`.
+    if (this.anchor() !== previousAnchor) {
+      this.clearElementSelection();
+    }
     this.inspect.emit(this);
   }
   setAnchor(anchor: string, inspect = true): void {
-    const available = this.anchors().length ? this.anchors() : ['output'];
-    if (!available.includes(anchor)) {
+    if (!this.syncPoints().includes(anchor)) {
       return;
     }
     if (anchor !== this.anchor()) {

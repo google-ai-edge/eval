@@ -28,6 +28,7 @@ import {
 } from '../../widgets/explorer_info_list/explorer_info_list';
 import {ViewActions} from '../../widgets/charts/view_actions';
 import {tensorPointLabel} from './tensor_labels';
+import {syncPointInfo, syncPointInLayer, syncPointsForLayer} from './sync_points';
 import {
   LayerActivationInspection,
   type LayerActivationInspectionState,
@@ -384,9 +385,21 @@ export class GraphMetricPanel {
   /** The sync point Inspection opens: for a min or max over sync points, the one the server names
    *  as the extremum's at the position; else the one browsed, or the first that holds a tensor. */
   private inspectionAnchor(position: number, layer: number, previous?: string): string {
+    const points = this.anchorPoints();
+    const resolve = (candidate: string): string => {
+      if (!points[candidate]) {
+        return candidate;
+      }
+      const options = syncPointsForLayer({
+        anchors: this.anchors().length ? this.anchors() : ['output'],
+        info: points,
+        layer,
+      });
+      return syncPointInLayer(candidate, options, points) ?? candidate;
+    };
     const anchors = this.selectedAnchors();
     if (anchors.length === 1) {
-      return anchors[0];
+      return resolve(anchors[0]);
     }
     if (this.anchor() === 'min' || this.anchor() === 'max') {
       const summary = this.rows()
@@ -399,17 +412,17 @@ export class GraphMetricPanel {
             ? summary.max_anchor
             : null;
       if (named && anchors.includes(named)) {
-        return named;
+        return resolve(named);
       }
     }
     // A mean has no source tensor: retain the browsing point or start at an available point.
     if (previous && anchors.includes(previous)) {
-      return previous;
+      return resolve(previous);
     }
     const rows = this.metricSource().filter(
       (row) => row.position === position && row.layer === layer,
     );
-    return rows.find((row) => row.shape?.length)?.anchor ?? anchors[0] ?? 'output';
+    return rows.find((row) => row.shape?.length)?.anchor ?? resolve(anchors[0] ?? 'output');
   }
   showComparison(view: 'heatmap' | 'lineChart' | 'graph'): void {
     const inspection = this.inspection();
@@ -481,6 +494,8 @@ export class GraphMetricPanel {
   readonly anchorLabels = computed<Record<string, string>>(() =>
     Object.fromEntries((this.request.data()?.anchors ?? []).map((a) => [a.id, a.label])),
   );
+  /** Which layers each sync point is of, and its tensor, from the stage's observed points. */
+  readonly anchorPoints = computed(() => syncPointInfo(this.request.data()?.points ?? []));
   anchorLabel(anchor: string | null | undefined): string {
     return (anchor && this.anchorLabels()[anchor]) || tensorPointLabel(anchor);
   }

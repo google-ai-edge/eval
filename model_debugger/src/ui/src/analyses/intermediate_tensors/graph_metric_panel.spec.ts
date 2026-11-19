@@ -602,6 +602,81 @@ describe('Activation comparison toolbar', () => {
     fixture.destroy();
   });
 
+  it('remaps a layer-bound anchor and forwards anchorPoints when entering Inspection on another layer', async () => {
+    const {fixture, panel} = create();
+    fixture.componentRef.setInput('expanded', true);
+    const prefix = 'litert_torch.generative.Qwen3/Qwen3DecoderLayer_';
+    const base = analysisOf([
+      row(44, 0, 'output', {cosine_similarity: 0.99}),
+      row(44, 0, 'decode:36:0', {cosine_similarity: 0.95}),
+      row(44, 2, 'output', {cosine_similarity: 0.98}),
+      row(44, 2, 'decode:73:0', {cosine_similarity: 0.94}),
+    ]);
+    panel.request.data.set({
+      ...base,
+      points: [
+        {
+          id: 'output@0',
+          layer: 0,
+          anchor: 'output',
+          signature: 'decode',
+          tensor_name: `${prefix}0/add;1`,
+          shape: [1, 1, 8],
+          context_axes: [1],
+          dtype: 'F32',
+          cells: 1,
+          reasons: [],
+        },
+        {
+          id: 'output@2',
+          layer: 2,
+          anchor: 'output',
+          signature: 'decode',
+          tensor_name: `${prefix}2/add;1`,
+          shape: [1, 1, 8],
+          context_axes: [1],
+          dtype: 'F32',
+          cells: 1,
+          reasons: [],
+        },
+        {
+          id: 'decode:36:0@0',
+          layer: 0,
+          anchor: 'decode:36:0',
+          signature: 'decode',
+          tensor_name: `${prefix}0/Linear_o_proj;0`,
+          shape: [1, 1, 8],
+          context_axes: [1],
+          dtype: 'F32',
+          cells: 1,
+          reasons: [],
+        },
+        {
+          id: 'decode:73:0@2',
+          layer: 2,
+          anchor: 'decode:73:0',
+          signature: 'decode',
+          tensor_name: `${prefix}2/Linear_o_proj;0`,
+          shape: [1, 1, 8],
+          context_axes: [1],
+          dtype: 'F32',
+          cells: 1,
+          reasons: [],
+        },
+      ],
+    });
+    await settle(fixture);
+
+    panel.setAggregation({selection: ['decode:36:0'], function: 'min'});
+    panel.select({start: 44, end: 45, layer: 2});
+    panel.chooseView('Tensor Inspection · Line chart');
+    await settle(fixture);
+
+    expect(panel.inspection()?.anchor()).toBe('decode:73:0');
+    expect(panel.inspection()?.anchorPoints()['decode:73:0']?.layers).toEqual([2]);
+    fixture.destroy();
+  });
+
   it('opens Inspection at the sync point the server names as the extremum', async () => {
     const {fixture, panel} = create();
     panel.request.data.set(analysisOf(mixedRows()));

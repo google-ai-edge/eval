@@ -65,7 +65,7 @@ export interface PositionColumn {
 /** A point the Session observes, as the server read it from the model. */
 export interface ObservedPoint {
   id: string;
-  layer: number;
+  layer: number | null;
   anchor: string;
   signature: string;
   tensor_name: string;
