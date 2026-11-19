@@ -131,3 +131,38 @@ p {
   font: 400 12px/16px var(--me-font-family);
   color: var(--me-on-surface-low-color);
 }
+
+.picker ::ng-deep .mdc-button__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.option-text.with-badge {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.option-highlighted .option-name {
+  font-weight: 500;
+  color: var(--me-on-surface-color);
+}
+
+.option-badge {
+  margin-left: auto;
+  flex-shrink: 0;
+  font: 400 11px/16px var(--me-font-family);
+  font-variant-numeric: tabular-nums;
+  color: var(--me-on-surface-variant-color);
+}
+
+.option-badge.nonzero {
+  padding: 0 4px;
+  border-radius: 3px;
+  font-weight: 500;
+  color: var(--me-on-surface-color);
+  background: var(--heat-low, var(--heat-activation-low));
+  border: 1px solid var(--heat-high, var(--heat-activation-high));
+}

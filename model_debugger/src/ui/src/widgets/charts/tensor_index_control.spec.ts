@@ -41,4 +41,50 @@ describe('TensorIndexControl', () => {
     expect(changes).toHaveLength(1);
     expect(control.summary()).toBe('[Sync point: -]');
   });
+
+  it('renders option badges and highlights non-zero options while keeping summary unchanged', () => {
+    const fixture = TestBed.createComponent(TensorIndexControl);
+    const control = fixture.componentInstance;
+    fixture.componentRef.setInput('dimensions', [
+      {id: 'layer', label: 'Layer', value: '0', options: ['0', '1']},
+      {
+        id: 'anchor',
+        label: 'Sync point',
+        value: 'output',
+        options: ['output', 'decode:36:0'],
+        optionLabels: {
+          output: 'Layer output',
+          'decode:36:0': 'FusedQwen3Attention_self_attn · decode:36:0',
+        },
+        optionBadges: {output: '0', 'decode:36:0': '5.96e-8'},
+        highlightedOptions: ['decode:36:0'],
+      },
+    ]);
+    fixture.detectChanges();
+
+    expect(control.summary()).toBe('[Layer: 0, Sync point: Layer output]');
+
+    (
+      fixture.nativeElement.querySelector('button[aria-label="Tensor Index"]') as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+    (
+      document.body.querySelector('button[aria-label="Tensor sync point"]') as HTMLButtonElement
+    ).click();
+    fixture.detectChanges();
+
+    const options = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+    );
+    expect(options).toHaveLength(2);
+    expect(options[0].classList.contains('option-highlighted')).toBe(false);
+    expect(options[0].querySelector('.option-badge')?.textContent?.trim()).toBe('0');
+    expect(options[0].querySelector('.option-badge.nonzero')).toBeNull();
+    expect(options[1].classList.contains('option-highlighted')).toBe(true);
+    expect(options[1].querySelector('.option-name')?.textContent?.trim()).toBe(
+      'FusedQwen3Attention_self_attn · decode:36:0',
+    );
+    expect(options[1].querySelector('.option-badge.nonzero')?.textContent?.trim()).toBe('5.96e-8');
+    fixture.destroy();
+  });
 });

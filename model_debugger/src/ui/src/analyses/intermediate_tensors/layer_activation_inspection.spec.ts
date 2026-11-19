@@ -22,6 +22,7 @@ import {By} from '@angular/platform-browser';
 import type {
   PositionTensorRequest,
   PositionTensorResponse,
+  PositionTensorRow,
 } from '../../server/contracts/position_analysis';
 import {PositionAnalysisApi} from '../../server/position_analysis_api';
 import {CaptureStore} from '../../server/capture_store';
@@ -724,6 +725,72 @@ describe('LayerActivationInspection', () => {
     expect(inspect).not.toHaveBeenCalled();
     view.setPosition(34);
     expect(inspect).toHaveBeenCalledOnce();
+    fixture.destroy();
+  });
+  it('shows each sync point max |Δ| at the active position and layer and highlights non-zero entries', async () => {
+    const analysisRow = (
+      position: number,
+      layer: number,
+      anchor: string,
+      maxAbs: number | null,
+    ): PositionTensorRow => ({
+      position,
+      layer,
+      anchor,
+      status: maxAbs === null ? 'unavailable' : 'ok',
+      reasons: [],
+      shape: [8],
+      metrics: {max_abs: {value: maxAbs, reasons: []}},
+    });
+    const {fixture, view} = create(undefined, {
+      plot: 'delta',
+      position: 32,
+      layer: 0,
+      anchor: 'output',
+    });
+    const name = (layer: number, op: string) =>
+      `litert_torch.generative.Qwen3/Qwen3DecoderLayer_${layer}/litert_torch.attn.${op}`;
+    fixture.componentRef.setInput('anchors', ['output', 'decode:36:0', 'decode:40:0']);
+    fixture.componentRef.setInput('anchorLabels', {
+      output: 'Layer output',
+      'decode:36:0': `${name(0, 'FusedQwen3Attention_self_attn;23')} · decode:36:0`,
+      'decode:40:0': `${name(0, 'Linear_o_proj;2')} · decode:40:0`,
+    });
+    fixture.componentRef.setInput('anchorPoints', {
+      output: {layers: [0, 1], tensorName: name(0, 'add;1'), signature: 'decode'},
+      'decode:36:0': {
+        layers: [0],
+        tensorName: name(0, 'FusedQwen3Attention_self_attn;23'),
+        signature: 'decode',
+      },
+      'decode:40:0': {layers: [0], tensorName: name(0, 'Linear_o_proj;2'), signature: 'decode'},
+    });
+    fixture.componentRef.setInput('analysisRows', [
+      analysisRow(32, 0, 'output', 0),
+      analysisRow(32, 0, 'decode:36:0', 5.960464477539063e-8),
+      analysisRow(32, 1, 'output', 1.5),
+      analysisRow(33, 0, 'output', 0.0025),
+      analysisRow(33, 0, 'decode:36:0', 0),
+      analysisRow(33, 0, 'decode:40:0', 0),
+    ]);
+    await settle(fixture);
+
+    expect(view.tensorIndexDimensions()[1].optionBadges).toEqual({
+      output: '0',
+      'decode:36:0': '5.96e-8',
+      'decode:40:0': '—',
+    });
+    expect(view.tensorIndexDimensions()[1].highlightedOptions).toEqual(['decode:36:0']);
+
+    view.setPosition(33);
+    await settle(fixture);
+
+    expect(view.tensorIndexDimensions()[1].optionBadges).toEqual({
+      output: '0.0025',
+      'decode:36:0': '0',
+      'decode:40:0': '0',
+    });
+    expect(view.tensorIndexDimensions()[1].highlightedOptions).toEqual(['output']);
     fixture.destroy();
   });
 });

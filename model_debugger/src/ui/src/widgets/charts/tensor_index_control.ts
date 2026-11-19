@@ -32,6 +32,10 @@ export interface TensorIndexDimension {
   optionLabels?: Readonly<Record<string, string>>;
   /** Longer text of each option, read with it (full tensor names, say). */
   optionDescriptions?: Readonly<Record<string, string>>;
+  /** Short right-aligned readout per option (e.g. max |Δ| at the current position). */
+  optionBadges?: Readonly<Record<string, string>>;
+  /** Options whose readout is highlighted (e.g. non-zero diff). */
+  highlightedOptions?: readonly string[];
   disabled?: boolean;
 }
 export interface TensorIndexChange {
@@ -87,6 +91,8 @@ export interface TensorIndexChange {
               [options]="dimension.options.slice()"
               [optionLabels]="dimension.optionLabels ?? {}"
               [descriptions]="dimension.optionDescriptions ?? {}"
+              [optionBadges]="dimension.optionBadges ?? {}"
+              [highlightedOptions]="dimension.highlightedOptions ?? []"
               [disabled]="dimension.disabled || !dimension.options.length"
               [compact]="true"
               (valueChange)="choose(dimension.id, $event)"

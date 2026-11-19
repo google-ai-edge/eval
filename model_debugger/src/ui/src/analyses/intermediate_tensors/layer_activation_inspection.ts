@@ -34,11 +34,15 @@ import {OverlayModule} from '@angular/cdk/overlay';
 import {MatButtonModule} from '@angular/material/button';
 import {MatIconModule} from '@angular/material/icon';
 import {MatTooltipModule} from '@angular/material/tooltip';
-import type {PositionTensorResponse} from '../../server/contracts/position_analysis';
+import type {
+  PositionTensorResponse,
+  PositionTensorRow,
+} from '../../server/contracts/position_analysis';
 import type {KvPositionAlignment, KvRangeBin} from '../../server/contracts/kv';
 import {reasonText} from '../../server/reasons';
 import {PositionAnalysisApi} from '../../server/position_analysis_api';
 import {CaptureStore} from '../../server/capture_store';
+import {EM_DASH, formatMetric} from '../../widgets/format/format';
 import {ConfigPicker} from '../../widgets/config_picker/config_picker';
 import {OverlayDialog, OverlayPanel} from '../../widgets/overlay_dialog/overlay_dialog';
 import {animateAnalysisLocationFeedback} from '../../widgets/locate_feedback';
@@ -454,6 +458,8 @@ export class LayerActivationInspection {
   /** Which layers each sync point is of, and its tensor; a point chosen inside the layers is one
    *  layer's, so Tensor Index offers it with that layer only. */
   readonly anchorPoints = input<Readonly<Record<string, SyncPointInfo>>>({});
+  /** The stage's compared tensor rows, for showing per-sync-point max |Δ| in Tensor Index. */
+  readonly analysisRows = input<readonly PositionTensorRow[]>([]);
   readonly initial = input<LayerActivationInspectionState | null>(null);
   readonly initialPosition = input<number | null>(null);
   readonly initialLayer = input<number | null>(null);
@@ -520,6 +526,8 @@ export class LayerActivationInspection {
       options: this.syncPoints(),
       optionLabels: this.syncPointLabels(),
       optionDescriptions: this.syncPointDescriptions(),
+      optionBadges: this.syncPointDiffs().badges,
+      highlightedOptions: this.syncPointDiffs().highlighted,
     },
   ]);
   /** Returns the sync points of `layer`: unknown anchors and anchors observed in `layer`. */
@@ -554,6 +562,37 @@ export class LayerActivationInspection {
       }
     }
     return descriptions;
+  });
+  private readonly syncPointDiffs = computed<{
+    badges: Record<string, string>;
+    highlighted: string[];
+  }>(() => {
+    const rows = this.analysisRows();
+    const layer = this.layer();
+    if (!rows.length || layer == null) {
+      return {badges: {}, highlighted: []};
+    }
+    const position = this.position();
+    const byAnchor = new Map<string, PositionTensorRow>();
+    for (const row of rows) {
+      if (row.position === position && row.layer === layer) {
+        byAnchor.set(row.anchor, row);
+      }
+    }
+    const badges: Record<string, string> = {};
+    const highlighted: string[] = [];
+    for (const anchor of this.syncPoints()) {
+      const value = byAnchor.get(anchor)?.metrics['max_abs']?.value ?? null;
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        badges[anchor] = formatMetric(value);
+        if (value > 0) {
+          highlighted.push(anchor);
+        }
+      } else {
+        badges[anchor] = EM_DASH;
+      }
+    }
+    return {badges, highlighted};
   });
   readonly selectedIndex = signal<number | null>(null);
   readonly selection = computed(() => {

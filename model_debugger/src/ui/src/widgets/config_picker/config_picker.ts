@@ -106,24 +106,27 @@ import {OverlayDialog, OverlayPanel} from '../overlay_dialog/overlay_dialog';
                     type="button"
                     role="option"
                     [attr.aria-label]="optionLabels()[option] ? option : null"
-                    [matTooltip]="
-                      compact() && !unavailable().includes(option)
-                        ? (descriptions()[option] ?? '')
-                        : ''
-                    "
-                    [class.described]="
-                      !compact() && !inlineDescriptions() && !!descriptions()[option]
-                    "
+                    [matTooltip]="optionTooltips()[option] ?? ''"
+                    [class.described]="!!describedByOption()[option]"
                     [class.inline-description]="inlineDescriptions()"
-                    [attr.aria-description]="compact() ? descriptions()[option] : null"
+                    [class.option-highlighted]="!!highlightedByOption()[option]"
+                    [attr.aria-description]="optionAriaDescriptions()[option] ?? null"
                     [disabled]="unavailable().includes(option)"
                     [attr.aria-selected]="option === value()"
                     [attr.cdkFocusInitial]="!searchable() && option === value() ? '' : null"
                     (click)="valueChange.emit(option); open.set(false)"
                   >
-                    <span class="option-text"
+                    <span
+                      class="option-text"
+                      [class.with-badge]="optionBadges()[option] !== undefined"
                       ><span class="option-name">{{ optionLabels()[option] ?? option }}</span>
-                      @if (!compact() && descriptions()[option]) {
+                      @if (optionBadges()[option] !== undefined) {
+                        &#32;<span
+                          class="option-badge"
+                          [class.nonzero]="!!highlightedByOption()[option]"
+                          >{{ optionBadges()[option] }}</span
+                        >
+                      } @else if (!compact() && descriptions()[option]) {
                         <small>{{ descriptions()[option] }}</small>
                       }
                     </span>
@@ -156,6 +159,66 @@ export class ConfigPicker {
   readonly options = input.required<string[]>();
   readonly groups = input<readonly {label: string; options: readonly string[]}[]>([]);
   readonly optionLabels = input<Partial<Record<string, string>>>({});
+  readonly optionBadges = input<Readonly<Record<string, string>>>({});
+  readonly highlightedOptions = input<readonly string[]>([]);
+  protected readonly highlightedByOption = computed<Readonly<Record<string, boolean>>>(() => {
+    const highlighted: Record<string, boolean> = {};
+    for (const option of this.highlightedOptions()) {
+      highlighted[option] = true;
+    }
+    return highlighted;
+  });
+  protected readonly optionAriaDescriptions = computed<Readonly<Record<string, string>>>(() => {
+    const badges = this.optionBadges();
+    const descriptions = this.descriptions();
+    const compact = this.compact();
+    const result: Record<string, string> = {};
+    for (const option of this.options()) {
+      const badge = badges[option];
+      const description = compact || badge !== undefined ? descriptions[option] : undefined;
+      const parts: string[] = [];
+      if (badge) {
+        parts.push(badge);
+      }
+      if (description) {
+        parts.push(description);
+      }
+      if (parts.length) {
+        result[option] = parts.join(' · ');
+      }
+    }
+    return result;
+  });
+  protected readonly optionTooltips = computed<Readonly<Record<string, string>>>(() => {
+    const compact = this.compact();
+    const badges = this.optionBadges();
+    const descriptions = this.descriptions();
+    const unavailable = new Set(this.unavailable());
+    const result: Record<string, string> = {};
+    for (const option of this.options()) {
+      if ((compact || badges[option] !== undefined) && !unavailable.has(option)) {
+        const description = descriptions[option];
+        if (description) {
+          result[option] = description;
+        }
+      }
+    }
+    return result;
+  });
+  protected readonly describedByOption = computed<Readonly<Record<string, boolean>>>(() => {
+    if (this.compact() || this.inlineDescriptions()) {
+      return {};
+    }
+    const badges = this.optionBadges();
+    const descriptions = this.descriptions();
+    const result: Record<string, boolean> = {};
+    for (const option of this.options()) {
+      if (badges[option] === undefined && descriptions[option]) {
+        result[option] = true;
+      }
+    }
+    return result;
+  });
   readonly disabled = input(false);
   readonly searchable = input(false);
   readonly valueChange = output<string>();
