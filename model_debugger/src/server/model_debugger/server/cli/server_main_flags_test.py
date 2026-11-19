@@ -185,6 +185,39 @@ class DefaultUiTest(absltest.TestCase):
     self.assertIsNone(server_main.default_ui())
 
 
+class PytorchRunnerTest(absltest.TestCase):
+  """The PyTorch runner chosen with and without --pytorch_runner."""
+
+  def setUp(self):
+    super().setUp()
+    tmp = pathlib.Path(self.create_tempdir().full_path)
+    self.root = tmp / 'root'
+    self.project = self.root / 'src/runner_pytorch'
+    self.project.mkdir(parents=True)
+    self.in_project = self.project / 'bazel-bin/runner'
+    self.enter_context(mock.patch.object(server_main, '_ROOT', self.root))
+    self.enter_context(
+        mock.patch.object(server_main, '_PYTORCH_PROJECT', self.project)
+    )
+    self.enter_context(
+        mock.patch.object(
+            server_main, '_PYTORCH_RUNNER_IN_PROJECT', self.in_project
+        )
+    )
+
+  def test_flag_overrides_default_and_empty_disables(self):
+    self.assertEqual(
+        server_main.pytorch_runner('/bin/echo --opt'),
+        ('/bin/echo', '--opt'),
+    )
+    self.assertIsNone(server_main.pytorch_runner(''))
+
+  def test_checkout_runner_when_module_exists(self):
+    self.assertIsNone(server_main.pytorch_runner(None))
+    (self.project / 'MODULE.bazel').write_text('')
+    self.assertEqual(server_main.pytorch_runner(None), (str(self.in_project),))
+
+
 class FlagExitTest(absltest.TestCase):
   """The command run with a mistake: one line on stderr, and status 1."""
 
