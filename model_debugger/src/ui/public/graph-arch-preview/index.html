@@ -177,7 +177,48 @@ function metricTag(metric,x,y,configured){
  const withIcon=typeof configured==='boolean'||configured==='summary',iconWidth=withIcon?20:0,w=metricTagWidth(metric)+iconWidth,h=24;
  return `<g class="metric-tag arch-metric${withIcon?' tensor-metric':''}${metric.value===null?' is-empty':''}" data-metric-value="${metric.value??''}" aria-label="${escape(metric.title+' · '+metric.text)}" style="--metric-tag-bg:${escape(metric.bg)};--metric-tag-fg:${escape(metric.fg)}" transform="translate(${x},${y})"><title>${escape(metric.title)}</title><rect width="${w}" height="${h}" rx="3"/><rect class="metric-mask" width="${w}" height="${h}" rx="3"/>${withIcon?`<g class="tensor-glyph" transform="translate(5,${(h-12)/2})">${configured==='summary'?'<path class="summary-symbol" d="M6 1 11 3.5 6 6 1 3.5Z M1 6 6 8.5 11 6 M1 8.5 6 11 11 8.5"/>':tensorGlyph(configured)}</g>`:''}<text x="${iconWidth+(w-iconWidth)/2}" y="${h/2}" text-anchor="middle" dominant-baseline="central">${escape(metric.text)}</text></g>`;
 }
-function blockMetric(g){return archMetric(g.output,g.ops.flatMap(id=>ops[id].output));}
+function blockInternalTensorIds(g){
+ return [...new Set(g.ops.flatMap(id=>ops[id]?.output||[]))].filter(id=>id!==g.output);
+}
+function blockInternalTags(g){
+ const model=analysisContext?.model,seen=new Set(),tags=[];
+ const block=model?.blocks?.ref?.[state.layer]?.[g.name],signature=model?.signatures?.ref;
+ if(block?.by==='anchors'&&block?.nodes?.length&&signature&&model?.points?.ref){
+  const nodeSet=new Set(block.nodes);
+  const endPoint=block.to?model.bindings?.ref?.[state.layer]?.[block.to]?.point??null:null;
+  const prefix=signature+':';
+  for(const [pointId,tag] of Object.entries(model.points.ref)){
+   if(!pointId.startsWith(prefix)||pointId===endPoint)continue;
+   const rest=pointId.slice(prefix.length),sep=rest.lastIndexOf(':');
+   if(sep<=0)continue;
+   const nodeId=rest.slice(0,sep);
+   if(!nodeSet.has(nodeId)||seen.has(pointId))continue;
+   seen.add(pointId);tags.push({point:pointId,tag});
+  }
+ }
+ for(const tensorId of blockInternalTensorIds(g)){
+  const tag=anchorTag(tensorId)||opTag(tensorId);
+  if(!tag?.observed)continue;
+  const key=tag.title?.includes(' · ')?tag.title.split(' · ')[0]:tensorId;
+  if(seen.has(key))continue;
+  seen.add(key);tags.push({point:key,tag});
+ }
+ return tags;
+}
+function blockMetric(g){
+ const mode=analysisContext?.summary==='min'?'min':'max',modeLabel=mode==='min'?'Min':'Max';
+ const internal=blockInternalTags(g),valid=internal.filter(({tag})=>tag.value!==null&&Number.isFinite(tag.value));
+ if(!valid.length){
+  const total=internal.length||blockInternalTensorIds(g).length;
+  const why=internal.length?'No finite metric value for observed tensors in this block.':analysisContext?.model?.notObserved||NO_STAGE_VALUE;
+  return {value:null,mode,available:0,total,text:'—',bg:'var(--metric-empty-bg)',fg:'var(--muted)',title:`Internal ${modeLabel} · ${why}`};
+ }
+ let chosen=valid[0];
+ for(let i=1;i<valid.length;i++){
+  if(mode==='min'?valid[i].tag.value<chosen.tag.value:valid[i].tag.value>chosen.tag.value)chosen=valid[i];
+ }
+ return {value:chosen.tag.value,mode,available:valid.length,total:internal.length,text:chosen.tag.text,bg:chosen.tag.bg,fg:chosen.tag.fg,title:`Internal ${modeLabel} · ${valid.length} observed · ${chosen.point} · ${chosen.tag.text}`};
+}
 function blockSummaryWidth(g){return metricTagWidth(blockMetric(g))+20;}
 function collapsedBlockWidth(g){return Math.max(80,Math.ceil(labelWidth(g.name,500)+40),blockSummaryWidth(g)+24);}
 function tensorLabelWidth(id){return 9+20+metricTagWidth(archMetric(id));}
@@ -412,15 +453,21 @@ function archTensorDetailItem(id){
 function archSelectedTensorDetails(){
  const selected=state.selection;
  if(!selected)return '';
- let ids;
  if(['summary','module-summary'].includes(selected.kind)){
   const group=groups.find(g=>g.id===selected.id);
   if(!group)return '';
-  const output=group.output;
-  ids=[...new Set(group.ops.flatMap(id=>ops[id].output))].filter(id=>id!==output);
- }else if(['tensor','module-tensor'].includes(selected.kind))ids=[selected.id];
- else return '';
- return infoSection('selected-tensor','Tensor Details',ids.length?ids.map(id=>archTensorDetailItem(id)).join(''):'<p>No internal tensors</p>');
+  const internal=blockInternalTags(group);
+  if(internal.length){
+   return infoSection('selected-tensor','Tensor Details',internal.map(({point,tag})=>{
+    const value=tag.title?.startsWith(point+' · ')?tag.title.slice(point.length+3):(tag.title||'—');
+    return `<div data-tensor-heading="${escape(point)}">${infoTable([['Point',point],['Value',value]],true)}</div>`;
+   }).join(''));
+  }
+  const ids=blockInternalTensorIds(group);
+  return infoSection('selected-tensor','Tensor Details',ids.length?ids.map(id=>archTensorDetailItem(id)).join(''):'<p>No internal tensors</p>');
+ }
+ if(['tensor','module-tensor'].includes(selected.kind))return infoSection('selected-tensor','Tensor Details',archTensorDetailItem(selected.id));
+ return '';
 }
 
 

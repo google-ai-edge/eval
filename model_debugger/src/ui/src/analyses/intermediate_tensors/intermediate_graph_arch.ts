@@ -119,7 +119,7 @@ export interface GraphMappingView {
   template: `<iframe
     #frame
     title="Graph Diff architecture"
-    src="graph-arch-preview/index.html?v=156"
+    src="graph-arch-preview/index.html?v=157"
     (load)="sync()"
   ></iframe>`,
   styles: [
