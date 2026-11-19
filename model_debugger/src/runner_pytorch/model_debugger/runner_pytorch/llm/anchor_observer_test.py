@@ -25,6 +25,7 @@ from model_debugger.runner_pytorch.llm import anchor_observer
 from model_debugger.runner_pytorch.testing import test_main
 from model_debugger.runner_pytorch.testing import tiny_gemma4
 import pytest
+import pytorch_collector
 import torch
 import transformers
 
@@ -201,8 +202,12 @@ def test_a_module_only_capture_exports_no_graph(model):
   assert observer.graph is None and not observer.graph_reason
 
 
-def test_a_module_only_capture_snapshots_less(model):
-  """The selected modules alone: fewer bytes than every module's."""
+def test_selected_module_capture_snapshots_less_in_both_modes(model):
+  """Both observer modes snapshot only the selected modules, not every op."""
+  with pytorch_collector.collect(model) as every:
+    with torch.no_grad():
+      _passes(model, lambda call, *_: call())
+  every_bytes = sum(r.tensor.nbytes for r in every.records)
   sizes = {}
   for full in (False, True):
     observer = anchor_observer.Observer(model, 1 << 30, full=full)
@@ -210,7 +215,7 @@ def test_a_module_only_capture_snapshots_less(model):
       _passes(model, observer.forward)
     assert observer.finish()
     sizes[full] = observer.snapshot_bytes
-  assert 0 < sizes[False] < sizes[True]
+  assert 0 < sizes[False] == sizes[True] < every_bytes
 
 
 def test_the_modules_asked_for_are_checked(model):

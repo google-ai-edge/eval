@@ -392,3 +392,86 @@ def test_tiny_gemma_anchors_match_the_full_capture_including_the_cache():
   }
   assert ("kwargs", "past_key_values", "layers", 0, "keys") in layer_inputs
   assert ("args", 1) in layer_inputs  # per_layer_input
+
+
+def test_selected_modules_with_operators_export_full_graph_within_module_budget():
+  """Selected modules with operators=True match full graph and keep budget."""
+  model = net()
+  calls = [torch.tensor([[1, 2, 3]]), torch.tensor([[4]])]
+  with collect(model) as full:
+    for ids in calls:
+      model(ids)
+  selected = ["blocks.0", "blocks.1.norm", model.head]
+  wanted = {"blocks.0", "blocks.1.norm", "head"}
+  with collect(model, modules=selected, operators=True) as capture:
+    for ids in calls:
+      model(ids)
+  assert isinstance(full.operators, bool) and full.operators
+  assert capture.modules == ("blocks.0", "blocks.1.norm", "head")
+  assert isinstance(capture.operators, bool) and capture.operators
+  assert_same_records(
+      capture.records,
+      [r for r in full.records if r.op is None and r.module in wanted],
+  )
+  assert capture.ops == full.ops
+  assert capture.edges == full.edges
+  assert capture.outputs == full.outputs
+  assert to_model_explorer(capture, hide_unused=True) == to_model_explorer(
+      full, hide_unused=True
+  )
+  used = sum(
+      r.tensor.numel() * r.tensor.element_size() for r in capture.records
+  )
+  full_used = sum(
+      r.tensor.numel() * r.tensor.element_size() for r in full.records
+  )
+  assert 0 < used < full_used
+  with collect(
+      model, modules=selected, operators=True, memory_limit_bytes=used
+  ) as tight:
+    for ids in calls:
+      model(ids)
+  assert len(tight.records) == len(capture.records)
+
+
+def test_all_modules_with_operators_false_snapshots_modules_only():
+  """operators=False skips ops/graph while still snapshotting all modules."""
+  model = net()
+  ids = torch.tensor([[1, 2, 3]])
+  with collect(model) as full:
+    model(ids)
+  with collect(model, operators=False) as no_ops:
+    model(ids)
+  assert no_ops.modules is None
+  assert isinstance(no_ops.operators, bool) and not no_ops.operators
+  assert_same_records(
+      no_ops.records,
+      [r for r in full.records if r.op is None and r.forward_id == 0],
+  )
+  for attr in ("ops", "edges", "outputs"):
+    with pytest.raises(
+        CaptureError,
+        match=(
+            f"{attr} are not recorded when collect\\(\\) sets operators=False"
+        ),
+    ):
+      getattr(no_ops, attr)
+  with pytest.raises(
+      ValueError, match="recorded no operators; collect with operators=True"
+  ):
+    to_model_explorer(no_ops)
+
+
+def test_invalid_operators_type_raises_type_error():
+  """Passing a non-bool operators argument fails fast with TypeError."""
+  model = net()
+  with pytest.raises(TypeError, match="operators must be a bool"):
+    collect(model, modules=["blocks.0"], operators="yes")
+
+
+def test_selected_modules_with_operators_rejects_non_cpu_model():
+  """operators=True still requires CPU tensors even with module selection."""
+  meta_model = nn.Sequential(nn.Linear(4, 4), nn.ReLU()).to("meta")
+  with pytest.raises(ValueError, match="Snapshots support CPU tensors only"):
+    with collect(meta_model, modules=["0"], operators=True):
+      pass

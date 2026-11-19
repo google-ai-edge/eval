@@ -243,9 +243,9 @@ def _invocation(module: nn.Module) -> tuple[types.FrameType, bool]:
 class Capture:
   """One-use scope for module and dispatcher-visible operator snapshots.
 
-  With selected modules, only their inputs and outputs are snapshotted and no
-  operator is observed; ``ops``, ``edges`` and ``outputs`` are then not
-  recorded.
+  With selected modules, only their inputs and outputs are snapshotted;
+  operator calls (``ops``, ``edges`` and ``outputs``) are omitted unless
+  ``operators=True`` is passed (CPU only).
   """
 
   def __init__(
@@ -254,7 +254,24 @@ class Capture:
       *,
       memory_limit_bytes: int,
       modules: Iterable[str | nn.Module] | None = None,
+      operators: bool | None = None,
   ) -> None:
+    """Initializes the instance.
+
+    Args:
+      model: The root PyTorch module to observe.
+      memory_limit_bytes: Nonnegative budget in bytes for snapshot data.
+      modules: Optional iterable of module paths or module objects to select;
+        None snapshots every registered module.
+      operators: Whether to record operator calls and data-flow edges; None
+        records them iff ``modules`` is None.
+
+    Raises:
+      TypeError: If ``model`` is not an ``nn.Module``, ``memory_limit_bytes`` is
+        not an integer, or ``operators`` is neither a ``bool`` nor ``None``.
+      ValueError: If ``memory_limit_bytes`` is negative or ``modules`` contains
+        an unknown module path.
+    """
     if not isinstance(model, nn.Module):
       raise TypeError("model must be a torch.nn.Module")
     if isinstance(memory_limit_bytes, bool) or not isinstance(
@@ -263,11 +280,15 @@ class Capture:
       raise TypeError("memory_limit_bytes must be an integer")
     if memory_limit_bytes < 0:
       raise ValueError("memory_limit_bytes must be nonnegative")
+    if operators is not None and not isinstance(operators, bool):
+      raise TypeError("operators must be a bool")
+    self._operators = (modules is None) if operators is None else operators
     selection = None if modules is None else _select(model, modules)
     self._model: nn.Module | None = model
     self._limit = memory_limit_bytes
-    # None: every module and operator. Otherwise the selected module paths;
-    # the root is still hooked, without snapshots, to number its forwards.
+    # None: every module (and every operator when self._operators is True).
+    # Otherwise the selected module paths; the root is still hooked, without
+    # snapshots, to number its forwards.
     self._selected_paths = (
         None if selection is None else tuple(path for path, _ in selection)
     )
@@ -301,8 +322,13 @@ class Capture:
 
   @property
   def modules(self) -> tuple[str, ...] | None:
-    """The selected module paths, or None when every module and operator is captured."""
+    """The selected module paths, or None when every module is snapshotted."""
     return self._selected_paths
+
+  @property
+  def operators(self) -> bool:
+    """Whether operator calls and data-flow edges are recorded."""
+    return self._operators
 
   @property
   def records(self) -> tuple[Record, ...]:
@@ -344,9 +370,14 @@ class Capture:
     return self._selected is None or id(module) in self._selected
 
   def _require_operators(self, name: str) -> None:
-    if self._selected_paths is not None:
+    if not self._operators:
+      if self._selected_paths is not None:
+        raise CaptureError(
+            f"{name} are not recorded when collect() selects modules"
+            " without operators=True"
+        )
       raise CaptureError(
-          f"{name} are not recorded when collect() selects modules"
+          f"{name} are not recorded when collect() sets operators=False"
       )
 
   def __enter__(self) -> Capture:
@@ -379,9 +410,9 @@ class Capture:
       self._snapshots = Snapshotter(
           self._model.parameters(),
           self._limit,
-          cpu_only=self._selected is None,
+          cpu_only=self._operators,
       )
-      if self._selected is None:
+      if self._operators:
         self._provenance = Provenance(
             self._model.named_parameters(remove_duplicate=False),
             self._model.named_buffers(remove_duplicate=False),
@@ -391,7 +422,11 @@ class Capture:
       self._grad.__enter__()
       for _, module in self._modules:
         self._check_eager(module)
-        if not self._observes(module) and module is not self._model:
+        if (
+            not self._operators
+            and not self._observes(module)
+            and module is not self._model
+        ):
           continue
         self._handles.append(
             module.register_forward_pre_hook(
@@ -414,7 +449,7 @@ class Capture:
             )
         )
       self._hooks = {id(m): _hook_fingerprint(m) for _, m in self._modules}
-      if self._selected is None:
+      if self._operators:
         mode = CaptureMode(self)
         mode.__enter__()
         self._mode = mode
@@ -662,14 +697,16 @@ class Capture:
       # One traversal serves both the sources and the snapshots.
       received = [*walk(args, ("args",)), *walk(kwargs, ("kwargs",))]
       inputs, edges = provenance.inputs(call.forward_id, call_id, received)
-      self._record(call, "in", received, op=op, call_id=call_id)
+      if self._selected is None:
+        self._record(call, "in", received, op=op, call_id=call_id)
       output = func(*args, **kwargs)
       snapshots.finish_operation(token, output)
       returned = list(walk(output, ("output",)))
       outputs = provenance.outputs(
           call.forward_id, call_id, returned, func, args, kwargs
       )
-      self._record(call, "out", returned, op=op, call_id=call_id)
+      if self._selected is None:
+        self._record(call, "out", returned, op=op, call_id=call_id)
       self._pending_ops.append(
           Op(
               call.forward_id,
@@ -699,10 +736,10 @@ class Capture:
       call = self._current_call(module, frame)
       if call.inputs_seen:
         self._fail("module inputs were observed more than once")
+      if module is self._model and self._operators:
+        assert self._provenance is not None
+        self._provenance.root_inputs(call.forward_id, args, kwargs)
       if self._observes(module):
-        if module is self._model and self._selected is None:
-          assert self._provenance is not None
-          self._provenance.root_inputs(call.forward_id, args, kwargs)
         self._record(call, "in", args, ("args",))
         self._record(call, "in", kwargs, ("kwargs",))
       call.inputs_seen = True
@@ -732,7 +769,7 @@ class Capture:
         self._record(call, "out", output, ("output",))
       self._calls.pop()
       if module is self._model:
-        if self._selected is None:
+        if self._operators:
           assert self._provenance is not None
           self._pending_outputs.extend(
               self._provenance.root_outputs(call.forward_id, output)
@@ -788,21 +825,33 @@ def collect(
     *,
     memory_limit_bytes: int = DEFAULT_MEMORY_LIMIT_BYTES,
     modules: Iterable[str | nn.Module] | None = None,
+    operators: bool | None = None,
 ) -> Capture:
   """Observe registered modules and visible operators over root calls.
 
   ``modules`` selects module paths (as in ``named_modules()``) or module
   objects: only their inputs and outputs are snapshotted, on any device, and
-  no operator is observed, so ``ops``, ``edges`` and ``outputs`` raise and
-  ``to_model_explorer`` refuses the capture. Unknown paths raise ValueError.
-  Results become readable only after the entire scope exits successfully.
+  no operator is observed unless ``operators=True`` is passed, so ``ops``,
+  ``edges`` and ``outputs`` raise and ``to_model_explorer`` refuses the
+  capture. When ``operators=True`` (the default when ``modules`` is None,
+  CPU only), every operator call and data-flow edge is recorded; passing
+  ``operators=False`` omits operators even when all modules are snapshotted.
+  Unknown paths raise ValueError. Results become readable only after the
+  entire scope exits successfully.
 
   Args:
     model: The root PyTorch module to observe.
     memory_limit_bytes: Budget in bytes for snapshot data.
     modules: Optional iterable of module paths or module objects to select.
+    operators: Whether to record operator calls and data-flow edges; None
+      records them iff ``modules`` is None.
 
   Returns:
     A Capture context manager for the model.
   """
-  return Capture(model, memory_limit_bytes=memory_limit_bytes, modules=modules)
+  return Capture(
+      model,
+      memory_limit_bytes=memory_limit_bytes,
+      modules=modules,
+      operators=operators,
+  )

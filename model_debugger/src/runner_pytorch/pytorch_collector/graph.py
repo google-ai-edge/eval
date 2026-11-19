@@ -51,11 +51,16 @@ def _output(identifier: int, port: Port) -> dict[str, Any]:
 
 
 def _require_operators(capture: Capture, caller: str) -> None:
-  if capture.modules is not None:
+  if not capture.operators:
+    if capture.modules is not None:
+      raise ValueError(
+          f"{caller} needs every operator, but this capture selected"
+          f" {len(capture.modules)} modules and recorded no operators; collect"
+          " without modules or with operators=True to build a graph"
+      )
     raise ValueError(
-        f"{caller} needs every operator, but this capture selected"
-        f" {len(capture.modules)} modules and recorded no operators; collect"
-        " without modules to build a graph"
+        f"{caller} needs every operator, but this capture recorded no"
+        " operators; collect with operators=True to build a graph"
     )
 
 
@@ -326,7 +331,7 @@ def to_model_explorer(
   ``hide_unused`` leaves out the calls ``unused_ops`` reports, such as an index
   that a mask function receives and ignores, and outputs that no node of the
   graph feeds, such as a cache field returned as it came; records, ops and edges
-  keep them. A capture that selected modules has no operators and is refused.
+  keep them. A capture that recorded no operators is refused.
 
   Args:
     capture: The completed capture to convert into Model Explorer graphs.

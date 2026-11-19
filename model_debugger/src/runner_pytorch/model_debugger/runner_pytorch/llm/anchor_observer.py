@@ -18,17 +18,19 @@ A turn that observes runs its forward passes inside one
 pytorch-collector `collect()` under one snapshot budget, in one of two
 modes (`Observer(full=...)`):
 
-- module-only (MODULES), `collect(model, modules=[...])`: hooks only on
-  the modules the anchors are taken at (each decoder layer
+- module-only (MODULES), `collect(model, modules=[...], operators=False)`:
+  hooks only on the modules the anchors are taken at (each decoder layer
   `model.language_model.layers.<i>`, its `pre_feedforward_layernorm` and
   its `per_layer_input_gate`) and on the modules the Load asks for beside
   them (`Module`), and no operator observed. It snapshots on the device the
   model runs on (the CPU, MPS), each selected module's whole inputs and
   output: a layer's arguments carry the KV cache, which is snapshotted again
   at each layer (Gemma 4 E2B: 0.46 GB of a turn of "Name three colors.").
-- full (FULL), `collect(model)`: every module's inputs and outputs and every
-  operator's, on the CPU only; the one mode the execution graph can be
-  exported of (execution_graph), which needs the operators.
+- full (FULL), `collect(model, modules=[...], operators=True)`: the same
+  selected-module snapshots (~0.46 GB) plus every operator's provenance and
+  data-flow edges recorded without snapshotting operator tensors, on the CPU
+  only; the one mode the execution graph can be exported of (execution_graph),
+  which needs the operators.
 
 Once the turn is over, only these are kept of its records, per forward
 pass: the four anchors of each decoder layer, which end the blocks of the
@@ -73,13 +75,14 @@ import torch
 NONE = 'none'
 ANCHORS = 'anchors'
 LEVELS = (NONE, ANCHORS)
-# How a turn's capture observes: every module and operator, or the
-# selected modules alone.
+# How a turn's capture observes: the selected modules plus operator provenance
+# for the execution graph (FULL), or the selected modules alone (MODULES).
 FULL = 'full'
 MODULES = 'modules'
 # The snapshot budget of a turn when the Load sets none: a turn of Gemma 4
 # E2B on the CPU, "Name three colors." and its 24 tokens of reply (25 forward
-# passes), snapshots 4.26 GiB fully, 0.46 GB module-only.
+# passes), snapshots 0.46 GB (both FULL and MODULES snapshot only the selected
+# modules).
 DEFAULT_MEMORY_LIMIT_BYTES = 8 * 2**30
 # The scope of the decoder layers in Gemma4ForConditionalGeneration.
 LAYERS = 'model.language_model.layers'
@@ -267,9 +270,9 @@ class Observer:
         memory_limit_bytes: collect()'s snapshot budget for the turn.
         modules: The modules asked for beside the anchors, checked
           (parse_modules()).
-        full: Whether to capture every module and operator (FULL), as exporting
-          the execution graph needs, on the CPU only; else only the selected
-          modules (MODULES), on any device.
+        full: Whether to also record operator provenance for the execution
+          graph (`FULL`, `operators=True` with selected `modules=...`), on the
+          CPU only; else only the selected modules (`MODULES`), on any device.
     """
     self._model = model
     self.memory_limit_bytes = memory_limit_bytes
@@ -298,16 +301,12 @@ class Observer:
       key = _WantedKey(module.module, module.edge, module.path)
       self._wanted.setdefault(key, []).append(module)
     try:
-      if full:
-        capture = pytorch_collector.collect(
-            model, memory_limit_bytes=memory_limit_bytes
-        )
-      else:
-        capture = pytorch_collector.collect(
-            model,
-            memory_limit_bytes=memory_limit_bytes,
-            modules=sorted({key.module for key in self._wanted}),
-        )
+      capture = pytorch_collector.collect(
+          model,
+          memory_limit_bytes=memory_limit_bytes,
+          modules=sorted({key.module for key in self._wanted}),
+          operators=full,
+      )
       capture.__enter__()
     except Exception as error:  # pylint: disable=broad-exception-caught
       # The collector's refusal, any.

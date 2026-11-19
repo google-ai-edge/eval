@@ -99,6 +99,7 @@ py_test(
         ":anchor_observer",
         "//model_debugger/runner_pytorch/testing:test_main",
         "//model_debugger/runner_pytorch/testing:tiny_gemma4",
+        "//pytorch_collector",
         requirement("pytest"),
         requirement("torch"),
         requirement("transformers"),
