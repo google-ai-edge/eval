@@ -793,4 +793,82 @@ describe('LayerActivationInspection', () => {
     expect(view.tensorIndexDimensions()[1].highlightedOptions).toEqual(['output']);
     fixture.destroy();
   });
+  it('prefers unsqueezed slice_shape over squeezed shape for the Difference heatmap', async () => {
+    const {fixture, view} = create(
+      async (_capture, _turn, _phase, query) => {
+        const base = vector(query, 2048);
+        return {
+          ...base,
+          reference: {
+            ...base.reference!,
+            shape: [8, 2, 128],
+            slice_shape: [1, 8, 2, 128],
+          },
+          target: {
+            ...base.target!,
+            shape: [8, 2, 128],
+            slice_shape: [1, 8, 2, 128],
+          },
+        };
+      },
+      {plot: 'delta', position: 32, layer: 0, anchor: 'output'},
+    );
+    await settle(fixture);
+    expect(view.deltaShape()).toEqual([1, 8, 2, 128]);
+    const heatmap = fixture.debugElement.query(By.directive(TensorHeatmap))
+      .componentInstance as TensorHeatmap;
+    expect(heatmap.shape()).toEqual([1, 8, 2, 128]);
+    expect(heatmap.dimensions().map((d) => d.role)).toEqual(['first', 'toggle', 'toggle', 'last']);
+    fixture.destroy();
+  });
+  it('picks the richer slice_shape when cross-runtime sides differ only in factorization', async () => {
+    const {fixture, view} = create(
+      async (_capture, _turn, _phase, query) => {
+        const base = vector(query, 2048);
+        return {
+          ...base,
+          reference: {
+            ...base.reference!,
+            shape: [2048],
+            slice_shape: [1, 1, 2048],
+          },
+          target: {
+            ...base.target!,
+            shape: [16, 128],
+            slice_shape: [1, 1, 16, 128],
+          },
+        };
+      },
+      {plot: 'delta', position: 32, layer: 0, anchor: 'output'},
+    );
+    await settle(fixture);
+
+    expect(view.deltaShape()).toEqual([1, 1, 16, 128]);
+    fixture.destroy();
+  });
+  it('prefers more non-unit dimensions over extra leading unit axes', async () => {
+    const {fixture, view} = create(
+      async (_capture, _turn, _phase, query) => {
+        const base = vector(query, 2048);
+        return {
+          ...base,
+          reference: {
+            ...base.reference!,
+            shape: [2048],
+            slice_shape: [1, 1, 2048],
+          },
+          target: {
+            ...base.target!,
+            shape: [8, 256],
+            slice_shape: [8, 256],
+          },
+        };
+      },
+      {plot: 'delta', position: 32, layer: 0, anchor: 'output'},
+    );
+    await settle(fixture);
+
+    expect(view.deltaShape()).toEqual([8, 256]);
+    fixture.destroy();
+  });
 });

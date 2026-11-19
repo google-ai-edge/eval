@@ -597,6 +597,9 @@ class TensorAnalysisTest(absltest.TestCase):
     channel = answer['channels'][0]
     self.assertAlmostEqual(channel['delta'], channel['target'] - channel['ref'])
     self.assertEqual(answer['reference']['shape'], [2, first])
+    self.assertEqual(
+        answer['reference']['slice_shape'], [1, 1, 2, first]
+    )
     self.assertEqual(answer['reference']['reads'], first - 1)
     self.assertEqual(answer['reference']['step'], first)
     self.assertEqual(
@@ -613,6 +616,16 @@ class TensorAnalysisTest(absltest.TestCase):
     self.assertEqual(ta.tensor(alone), answer)
     # A column no step produced is no column of the stage.
     prefill = ta.stage(index, 1, 'prefill', _observed(), None)
+    prefill_cell = ta.tensor(prefill.cells[0])
+    self.assertEqual(prefill_cell['reference']['shape'], [fixtures.HIDDEN])
+    self.assertEqual(
+        prefill_cell['reference']['slice_shape'], [1, 1, fixtures.HIDDEN]
+    )
+    self.assertEqual(
+        prefill_cell['reference']['source_shape'],
+        [1, fixtures.PREFILL_SIZE, fixtures.HIDDEN],
+    )
+    self.assertLen(prefill_cell['channels'], fixtures.HIDDEN)
     with self.assertRaisesRegex(ValueError, 'no tensor of layer'):
       prefill.cell(0, 1, 'output')
     with self.assertRaisesRegex(ValueError, 'no tensor of layer'):

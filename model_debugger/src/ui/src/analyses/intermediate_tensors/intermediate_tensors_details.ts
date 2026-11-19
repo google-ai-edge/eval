@@ -213,9 +213,10 @@ export class IntermediateTensorsDetails extends AnalysisDetails {
   activationInspectionMetadata(side: 'ref' | 'target'): ExplorerInfoItem[] {
     const data = this.activationInspectionData();
     const source = side === 'ref' ? data?.reference : data?.target;
+    const shape = source?.slice_shape ?? source?.shape;
     return [
       {label: 'Dimensions', value: '[Element]'},
-      {label: 'Shape', value: source ? `[${source.shape.join(', ')}]` : '-', expandable: true},
+      {label: 'Shape', value: shape ? `[${shape.join(', ')}]` : '-', expandable: true},
       {label: 'Dtype', value: source?.dtype ?? '-'},
       {
         label: 'Point',

@@ -632,16 +632,35 @@ export class LayerActivationInspection {
   readonly compatible = computed(() => this.data()?.comparable ?? false);
   readonly scatterChannels = computed(() => (this.compatible() ? this.channels() : []));
   /** The compared shape the Difference heatmap lays out, or null when the sides were not compared
-   *  element by element or the shape does not match the elements. */
-  readonly deltaShape = computed(() => {
+   *  element by element or the shape does not match the elements. Prefers `slice_shape` so unit
+   *  axes (such as batch = 1) remain explicit instead of locking the next axis onto Y. */
+  readonly deltaShape = computed<readonly number[] | null>(() => {
     const data = this.data();
-    const shape = data?.reference?.shape ?? data?.target?.shape;
-    return this.compatible() &&
-      shape?.length &&
+    if (!this.compatible()) {
+      return null;
+    }
+    const total = this.total();
+    const isValid = (shape: readonly number[]): boolean =>
+      shape.length > 0 &&
       shape.every((n) => Number.isSafeInteger(n) && n > 0) &&
-      shape.reduce((a, b) => a * b, 1) === this.total()
-      ? shape
-      : null;
+      shape.reduce((a, b) => a * b, 1) === total;
+    const nonUnit = (shape: readonly number[]): number => shape.filter((n) => n > 1).length;
+    const slices: (readonly number[])[] = [];
+    for (const candidate of [data?.reference?.slice_shape, data?.target?.slice_shape]) {
+      if (candidate && isValid(candidate)) {
+        slices.push(candidate);
+      }
+    }
+    if (slices.length) {
+      slices.sort((a, b) => nonUnit(b) - nonUnit(a) || b.length - a.length);
+      return slices[0];
+    }
+    for (const candidate of [data?.reference?.shape, data?.target?.shape]) {
+      if (candidate && isValid(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
   });
   readonly scatterMessages = computed(() =>
     this.compatible()

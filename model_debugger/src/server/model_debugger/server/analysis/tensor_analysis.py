@@ -1179,14 +1179,14 @@ class _Reader:
       self._headers[source.file] = found
     return found
 
-  def vector(self, source: Source) -> np.ndarray:
-    """A side's value at a position: its tensor's part for that position.
+  def slice(self, source: Source) -> np.ndarray:
+    """A side's unsqueezed slice at a position: the tensor's part for it.
 
     Args:
         source: Where the value is.
 
     Returns:
-        The part of its tensor for the position.
+        The unsqueezed part of its tensor for the position.
 
     Raises:
         _MissingError: The header gives the tensor another shape than the
@@ -1208,14 +1208,14 @@ class _Reader:
     for axis in point.context_axes:
       part[axis] = slice(0, source.read + 1)
     if self._budget:
-      values = self._tensor(source)[tuple(part)]
-    else:
-      values = tensor_file.read_slice(
-          source.directory / source.file, tuple(part)
-      )
+      return self._tensor(source)[tuple(part)]
+    return tensor_file.read_slice(source.directory / source.file, tuple(part))
+
+  def vector(self, source: Source) -> np.ndarray:
+    """A side's value at a position: its tensor's squeezed part for it."""
     # A decode step's tensor and a prefill chunk's row of the same place
     # differ only by axes of one: neither keeps them.
-    return np.atleast_1d(np.squeeze(values))
+    return np.atleast_1d(np.squeeze(self.slice(source)))
 
   def _tensor(self, source: Source) -> np.ndarray:
     values = self._kept.get(source.file)
@@ -2401,12 +2401,13 @@ def tensor(found: Cell) -> dict[str, Any]:
       continue
     reader = _Reader()
     try:
-      vector = reader.vector(source)
+      sliced = reader.slice(source)
       dtype = reader.header(source).dtype
     except (_MissingError, OSError, ValueError):
       # The cell's reasons say why already.
       described[side] = None
       continue
+    vector = np.atleast_1d(np.squeeze(sliced))
     values[side] = vector
     described[side] = {
         'point': source.point.id,
@@ -2416,6 +2417,7 @@ def tensor(found: Cell) -> dict[str, Any]:
         'reads': source.read,
         'tensor_name': source.point.tensor_name,
         'shape': list(vector.shape),
+        'slice_shape': list(sliced.shape) or list(vector.shape),
         'source_shape': [
             source.forward['rows'] if extent == ROWS else extent
             for extent in source.point.shape

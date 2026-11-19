@@ -382,8 +382,8 @@ describe('Intermediate Tensors details', () => {
         abs_delta: statistic(Array(18).fill(2), 0),
       };
       const data = signal<{
-        reference: {shape: number[]; dtype: string | null} | null;
-        target: {shape: number[]; dtype: string | null} | null;
+        reference: {shape: number[]; slice_shape?: number[]; dtype: string | null} | null;
+        target: {shape: number[]; slice_shape?: number[]; dtype: string | null} | null;
         statistics: typeof statistics;
       }>({
         reference: {shape: [18], dtype: null},
@@ -454,6 +454,26 @@ describe('Intermediate Tensors details', () => {
       expect(view.activationInspectionMetadata('target')).toContainEqual({
         label: 'Dtype',
         value: 'float16',
+      });
+      expect(view.activationInspectionMetadata('target')).toContainEqual({
+        label: 'Shape',
+        value: '[18]',
+        expandable: true,
+      });
+      data.set({
+        reference: {shape: [8, 2, 128], slice_shape: [1, 8, 2, 128], dtype: 'float32'},
+        target: {shape: [8, 2, 128], slice_shape: [1, 8, 2, 128], dtype: 'float32'},
+        statistics,
+      });
+      expect(view.activationInspectionMetadata('ref')).toContainEqual({
+        label: 'Shape',
+        value: '[1, 8, 2, 128]',
+        expandable: true,
+      });
+      data.set({
+        reference: {shape: [18], dtype: null},
+        target: {shape: [18], dtype: 'float16'},
+        statistics,
       });
       const means = () => view.activationInspectionStatistics().map((row) => row.stats.mean);
       means().forEach((mean, index) => expect(mean).toBeCloseTo([8.5, 10.5, 2, 2][index]));

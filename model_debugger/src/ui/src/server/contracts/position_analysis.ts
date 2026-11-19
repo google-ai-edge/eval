@@ -140,8 +140,9 @@ export interface PositionTensorSource {
   /** The position that row fed: the one before the column's. */
   reads?: number;
   tensor_name: string;
-  /** The compared values' shape; `source_shape` the point's in the model. */
+  /** The compared values' squeezed shape; `slice_shape` keeps unit axes, `source_shape` is the point's in the model. */
   shape: number[];
+  slice_shape?: number[];
   source_shape: number[];
   dtype: string;
   comparison_dtype: string;
