@@ -45,6 +45,7 @@ import {animateAnalysisLocationFeedback} from '../../widgets/locate_feedback';
 import {LatestRequest} from '../../server/latest_request';
 import {ChannelChart} from '../../widgets/charts/channel_chart';
 import {ScatterChart} from '../../widgets/charts/scatter_chart';
+import {TensorHeatmap, type SideBarMetric} from '../../widgets/charts/tensor_heatmap';
 import {channelBinSize, type ChannelReduction} from '../../widgets/charts/channel_bins';
 import {scatterExtent, validValueRange, type ValueRange} from '../../widgets/charts/scatter_model';
 import {PositionRangeControl} from '../../widgets/charts/position_range_control';
@@ -66,8 +67,17 @@ import {
   type TensorIndexDimension,
 } from '../../widgets/charts/tensor_index_control';
 
+import {
+  INSPECTION_PLOTS,
+  INSPECTION_PLOT_LABELS,
+  isInspectionPlot,
+  type InspectionPlot,
+} from './position_tensor_model';
+
+export {INSPECTION_PLOTS, INSPECTION_PLOT_LABELS, isInspectionPlot, type InspectionPlot};
+
 export interface LayerActivationInspectionState {
-  plot: 'index' | 'scatter';
+  plot: InspectionPlot;
   position: number;
   layer: number | null;
   anchor?: string;
@@ -95,6 +105,7 @@ export interface LayerActivationInspectionState {
     ValueRangeControl,
     ChannelChart,
     ScatterChart,
+    TensorHeatmap,
   ],
   template: ` <div
       class="controls"
@@ -159,7 +170,13 @@ export interface LayerActivationInspectionState {
         </div>
         <div
           class="toolbar-range"
-          [attr.aria-label]="plot() === 'index' ? 'Element Range controls' : 'Value Range controls'"
+          [attr.aria-label]="
+            plot() === 'index'
+              ? 'Element Range controls'
+              : plot() === 'delta'
+                ? 'Difference controls'
+                : 'Value Range controls'
+          "
           role="group"
         >
           @if (plot() === 'index') {
@@ -172,6 +189,23 @@ export interface LayerActivationInspectionState {
             <view-actions
               [range]="elementRange()"
               [full]="elementFull()"
+              [expandable]="false"
+              (resetView)="resetRange()"
+            />
+          } @else if (plot() === 'delta') {
+            <span>Side bars</span>
+            <config-picker
+              class="view-picker side-bars-picker"
+              label="Side bars"
+              plural="metrics"
+              [value]="sideBarLabels[sideBars()]"
+              [options]="sideBarOptions"
+              [compact]="true"
+              [searchable]="false"
+              (valueChange)="setSideBars($event)"
+            />
+            <view-actions
+              [modified]="heatmapChanged()"
               [expandable]="false"
               (resetView)="resetRange()"
             />
@@ -190,7 +224,7 @@ export interface LayerActivationInspectionState {
         <div class="toolbar-legend">
           @if (plot() === 'index') {
             <runtime-legend [runtimes]="visibleRuntimes()" />
-          } @else {
+          } @else if (plot() === 'scatter') {
             <div class="tensor-axis-legend" aria-label="Tensor scatter axes">
               X: Ref · Y: Target
             </div>
@@ -200,11 +234,13 @@ export interface LayerActivationInspectionState {
           mat-icon-button
           class="view-display-button"
           aria-label="Display"
-          [disabled]="plot() === 'scatter'"
+          [disabled]="plot() !== 'index'"
           [matTooltip]="
             plot() === 'scatter'
               ? 'No display settings for Scatter plot'
-              : 'Display · Bins: ' + (displayBinsDisabled() ? '-' : reductionLabel(reduction()))
+              : plot() === 'delta'
+                ? 'No display settings for Difference'
+                : 'Display · Bins: ' + (displayBinsDisabled() ? '-' : reductionLabel(reduction()))
           "
           cdkOverlayOrigin
           #displayOrigin="cdkOverlayOrigin"
@@ -258,44 +294,46 @@ export interface LayerActivationInspectionState {
                 Reset to default
               </button>
             </div>
-            <div class="setting">
-              <div class="series-heading">
-                <label>Runtimes</label
-                ><span class="series-count">{{ displayRuntimes().length }}/2</span>
+            @if (plot() === 'index') {
+              <div class="setting">
+                <div class="series-heading">
+                  <label>Runtimes</label
+                  ><span class="series-count">{{ displayRuntimes().length }}/2</span>
+                </div>
+                <div class="series-options" role="group" aria-label="Visible runtimes">
+                  @for (series of runtimeSeries; track series.id) {
+                    <label>
+                      <input
+                        type="checkbox"
+                        [attr.aria-label]="'Show ' + series.label"
+                        [checked]="displayRuntimes().includes(series.id)"
+                        (change)="toggleDisplayRuntime(series.id)"
+                      />
+                      <i [style.border-top-color]="series.color" [class.dashed]="series.dashed"></i>
+                      <span>{{ series.label }}</span>
+                    </label>
+                  }
+                </div>
+                <div class="series-actions">
+                  <button
+                    mat-button
+                    [disabled]="displayRuntimes().length === 2"
+                    aria-label="Reset Runtimes to default"
+                    (click)="displayRuntimes.set(['ref', 'target'])"
+                  >
+                    Reset to default
+                  </button>
+                  <button
+                    mat-button
+                    [disabled]="!displayRuntimes().length"
+                    aria-label="Clear Runtimes"
+                    (click)="displayRuntimes.set([])"
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
-              <div class="series-options" role="group" aria-label="Visible runtimes">
-                @for (series of runtimeSeries; track series.id) {
-                  <label>
-                    <input
-                      type="checkbox"
-                      [attr.aria-label]="'Show ' + series.label"
-                      [checked]="displayRuntimes().includes(series.id)"
-                      (change)="toggleDisplayRuntime(series.id)"
-                    />
-                    <i [style.border-top-color]="series.color" [class.dashed]="series.dashed"></i>
-                    <span>{{ series.label }}</span>
-                  </label>
-                }
-              </div>
-              <div class="series-actions">
-                <button
-                  mat-button
-                  [disabled]="displayRuntimes().length === 2"
-                  aria-label="Reset Runtimes to default"
-                  (click)="displayRuntimes.set(['ref', 'target'])"
-                >
-                  Reset to default
-                </button>
-                <button
-                  mat-button
-                  [disabled]="!displayRuntimes().length"
-                  aria-label="Clear Runtimes"
-                  (click)="displayRuntimes.set([])"
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
+            }
             <footer>
               <span role="status" class="sr-only">{{
                 displayDirty() ? 'Unapplied changes' : 'Display settings applied'
@@ -332,42 +370,59 @@ export interface LayerActivationInspectionState {
         @for (notice of notices(); track notice) {
           <p class="state-message">{{ notice }}</p>
         }
-        <div class="tensor-line-canvas" [class.expanded]="expanded()">
-          @if (plot() === 'index') {
-            <channel-chart
-              dimensionLabel="Element index"
-              [groupLabels]="['Intermediate Tensors']"
-              [comparisonAllowed]="compatible()"
-              [rows]="channels()"
-              [visibleRuntimes]="visibleRuntimes()"
-              [range]="elementRange()"
-              [full]="elementFull()"
-              [reduction]="reduction()"
-              [capacity]="capacity()"
-              (capacityChange)="capacity.set($event)"
-              [selected]="selectedIndex()"
-              [channelSelection]="channelSelection()"
-              (channelSelectionChange)="channelSelection.set($event)"
-              (zoom)="zoomElements($event)"
-              (select)="showElement($event)"
-              (backgroundClick)="inspectStage.emit($event)"
-            />
+        @if (plot() === 'delta') {
+          @if (deltaShape(); as shape) {
+            <div class="tensor-line-canvas difference" [class.expanded]="expanded()">
+              <tensor-heatmap
+                [rows]="channels()"
+                [shape]="shape"
+                [dtype]="data()?.target?.dtype ?? data()?.reference?.dtype ?? null"
+                [sideBars]="sideBars()"
+              />
+            </div>
           } @else {
-            <scatter-chart
-              dimensionLabel="Element index"
-              [groupLabels]="['Intermediate Tensors']"
-              [singlePlane]="true"
-              [showGroupingNotice]="true"
-              [rows]="scatterChannels()"
-              [range]="valueRange()"
-              [selected]="selectedIndex()"
-              [messages]="scatterMessages()"
-              (select)="showElement($event)"
-              (zoom)="zoomValues($event)"
-              (backgroundClick)="inspectStage.emit($event)"
-            />
+            <p class="state-message">
+              {{ scatterMessages()[0] || 'Tensor shape is unavailable for the Difference heatmap.' }}
+            </p>
           }
-        </div>
+        } @else {
+          <div class="tensor-line-canvas" [class.expanded]="expanded()">
+            @if (plot() === 'index') {
+              <channel-chart
+                dimensionLabel="Element index"
+                [groupLabels]="['Intermediate Tensors']"
+                [comparisonAllowed]="compatible()"
+                [rows]="channels()"
+                [visibleRuntimes]="visibleRuntimes()"
+                [range]="elementRange()"
+                [full]="elementFull()"
+                [reduction]="reduction()"
+                [capacity]="capacity()"
+                (capacityChange)="capacity.set($event)"
+                [selected]="selectedIndex()"
+                [channelSelection]="channelSelection()"
+                (channelSelectionChange)="channelSelection.set($event)"
+                (zoom)="zoomElements($event)"
+                (select)="showElement($event)"
+                (backgroundClick)="inspectStage.emit($event)"
+              />
+            } @else {
+              <scatter-chart
+                dimensionLabel="Element index"
+                [groupLabels]="['Intermediate Tensors']"
+                [singlePlane]="true"
+                [showGroupingNotice]="true"
+                [rows]="scatterChannels()"
+                [range]="valueRange()"
+                [selected]="selectedIndex()"
+                [messages]="scatterMessages()"
+                (select)="showElement($event)"
+                (zoom)="zoomValues($event)"
+                (backgroundClick)="inspectStage.emit($event)"
+              />
+            }
+          </div>
+        }
         @if (plot() === 'index' && binSize() > 1) {
           <p class="plot-caption">
             {{ reductionLabel(reduction()) }} · up to {{ binSize() }} elements per bin
@@ -377,7 +432,15 @@ export interface LayerActivationInspectionState {
       <span class="sr-only" aria-live="polite">{{ announcement() }}</span>
     </section>`,
   styleUrl: '../shared/tensor_inspection.scss',
-  styles: '.layer-control tensor-index-control { width: 320px; }',
+  styles: `
+    .layer-control tensor-index-control {
+      width: 320px;
+    }
+    /* The Difference heatmap's labels and side bars need more height than a line chart. */
+    .tensor-line-canvas.difference:not(.expanded) {
+      height: 560px;
+    }
+  `,
 })
 export class LayerActivationInspection {
   readonly turn = input.required<number>();
@@ -426,7 +489,7 @@ export class LayerActivationInspection {
       return syncPointInLayer(current, this.syncPointsOf(layer), points) ?? current;
     },
   });
-  readonly plot = signal<'index' | 'scatter'>('index');
+  readonly plot = signal<InspectionPlot>('index');
   readonly position = computed(() => {
     const range = this.fullRange();
     const value = this.chosenPosition();
@@ -501,6 +564,15 @@ export class LayerActivationInspection {
   readonly announcement = signal('');
   readonly lineChart = viewChild(ChannelChart);
   readonly scatterChart = viewChild(ScatterChart);
+  private readonly heatmap = viewChild(TensorHeatmap);
+  /** Whether the Difference heatmap's layout or zoom differ from its default. */
+  readonly heatmapChanged = computed(() => this.heatmap()?.changed() ?? false);
+  readonly sideBars = signal<SideBarMetric>('count');
+  readonly sideBarOptions = ['Differing count', 'Max |Δ|'];
+  readonly sideBarLabels: Readonly<Record<SideBarMetric, string>> = {
+    count: 'Differing count',
+    max: 'Max |Δ|',
+  };
   readonly capacity = signal(128);
   readonly displayOpen = signal(false);
   readonly displayDraft = signal<ChannelReduction>('mean');
@@ -520,6 +592,18 @@ export class LayerActivationInspection {
   /** Whether the server compared the two sides element by element. */
   readonly compatible = computed(() => this.data()?.comparable ?? false);
   readonly scatterChannels = computed(() => (this.compatible() ? this.channels() : []));
+  /** The compared shape the Difference heatmap lays out, or null when the sides were not compared
+   *  element by element or the shape does not match the elements. */
+  readonly deltaShape = computed(() => {
+    const data = this.data();
+    const shape = data?.reference?.shape ?? data?.target?.shape;
+    return this.compatible() &&
+      shape?.length &&
+      shape.every((n) => Number.isSafeInteger(n) && n > 0) &&
+      shape.reduce((a, b) => a * b, 1) === this.total()
+      ? shape
+      : null;
+  });
   readonly scatterMessages = computed(() =>
     this.compatible()
       ? []
@@ -549,16 +633,13 @@ export class LayerActivationInspection {
   readonly notices = computed(() =>
     (this.data()?.reasons ?? []).map((reason) => reasonText([reason])),
   );
-  readonly visualizationLabel = computed(() =>
-    this.plot() === 'scatter'
-      ? 'Tensor Inspection · Scatter plot'
-      : 'Tensor Inspection · Line chart',
+  readonly visualizationLabel = computed(
+    () => `Tensor Inspection · ${INSPECTION_PLOT_LABELS[this.plot()]}`,
   );
   readonly visualizationOptions = [
     'Tensor Comparison · Heatmap',
     'Tensor Comparison · Line chart',
-    'Tensor Inspection · Line chart',
-    'Tensor Inspection · Scatter plot',
+    ...INSPECTION_PLOTS.map((plot) => `Tensor Inspection · ${INSPECTION_PLOT_LABELS[plot]}`),
     'Tensor Comparison · Graph Diff',
   ];
   readonly visualizationGroups = [
@@ -572,15 +653,21 @@ export class LayerActivationInspection {
     },
     {
       label: 'Tensor Inspection',
-      options: ['Tensor Inspection · Line chart', 'Tensor Inspection · Scatter plot'],
+      options: INSPECTION_PLOTS.map(
+        (plot) => `Tensor Inspection · ${INSPECTION_PLOT_LABELS[plot]}`,
+      ),
     },
   ];
-  readonly visualizationLabels = {
+  readonly visualizationLabels: Readonly<Record<string, string>> = {
     'Tensor Comparison · Graph Diff': 'Graph Diff',
     'Tensor Comparison · Heatmap': 'Heatmap',
     'Tensor Comparison · Line chart': 'Line chart',
-    'Tensor Inspection · Line chart': 'Line chart',
-    'Tensor Inspection · Scatter plot': 'Scatter plot',
+    ...Object.fromEntries(
+      INSPECTION_PLOTS.map((plot) => [
+        `Tensor Inspection · ${INSPECTION_PLOT_LABELS[plot]}`,
+        INSPECTION_PLOT_LABELS[plot],
+      ]),
+    ),
   };
   constructor() {
     effect(() => {
@@ -588,7 +675,7 @@ export class LayerActivationInspection {
       const position = this.initialPosition();
       const layer = this.initialLayer();
       untracked(() => {
-        this.plot.set(saved?.plot === 'scatter' ? 'scatter' : 'index');
+        this.plot.set(isInspectionPlot(saved?.plot) ? saved.plot : 'index');
         this.chosenPosition.set(saved?.position ?? position);
         this.chosenLayer.set(saved?.layer ?? layer);
         const initialAnchor = saved?.anchor ?? 'output';
@@ -707,6 +794,8 @@ export class LayerActivationInspection {
       this.compare.emit('lineChart');
     } else if (label === 'Tensor Inspection · Line chart') {
       this.plot.set('index');
+    } else if (label === 'Tensor Inspection · Difference') {
+      this.plot.set('delta');
     } else if (label === 'Tensor Inspection · Scatter plot') {
       this.plot.set('scatter');
       const selection = this.channelSelection();
@@ -792,7 +881,9 @@ export class LayerActivationInspection {
     }
   }
   resetRange(): void {
-    if (this.plot() === 'index') {
+    if (this.plot() === 'delta') {
+      this.heatmap()?.reset();
+    } else if (this.plot() === 'index') {
       this.savedElementRange.set(null);
     } else {
       this.savedValueRange.set(null);
@@ -800,6 +891,9 @@ export class LayerActivationInspection {
   }
   reductionLabel(value: ChannelReduction): string {
     return value === 'min' ? 'Minimum' : value === 'max' ? 'Maximum' : 'Mean';
+  }
+  setSideBars(label: string): void {
+    this.sideBars.set(label === this.sideBarLabels.max ? 'max' : 'count');
   }
   toggleDisplay(): void {
     if (this.plot() !== 'index') {
@@ -846,6 +940,10 @@ export class LayerActivationInspection {
       return;
     }
     this.showElement(index);
+    if (this.plot() === 'delta') {
+      this.heatmap()?.focusElement(index);
+      return;
+    }
     if (this.plot() === 'index') {
       const range = this.elementRange();
       if (index < range.start || index >= range.end || this.binSize() > 1) {
@@ -870,7 +968,9 @@ export class LayerActivationInspection {
     this.locateTensor();
   }
   locateTensor(): void {
-    (this.plot() === 'index' ? this.lineChart() : this.scatterChart())?.locateKind('key');
+    if (this.plot() !== 'delta') {
+      (this.plot() === 'index' ? this.lineChart() : this.scatterChart())?.locateKind('key');
+    }
   }
   private locateControl(target: HTMLElement | null): void {
     if (!target) {

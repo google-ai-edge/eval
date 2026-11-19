@@ -23,6 +23,12 @@
  */
 export type {GraphPanelState} from './intermediate_tensors/graph_metric_panel';
 export type {LayerActivationInspectionState} from './intermediate_tensors/layer_activation_inspection';
+export {
+  INSPECTION_PLOTS,
+  INSPECTION_PLOT_LABELS,
+  isInspectionPlot,
+  type InspectionPlot,
+} from './intermediate_tensors/position_tensor_model';
 export {parseKvView, type KvViewSnapshot} from './kv/kv_view_state';
 export {
   FINAL_LOGIT_METRICS,

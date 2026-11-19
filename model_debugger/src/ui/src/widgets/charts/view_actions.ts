@@ -94,11 +94,17 @@ export class ViewActions {
   readonly showReset = input(true);
   readonly range = input<{start: number; end: number} | null>(null);
   readonly full = input<{start: number; end: number} | null>(null);
+  /** Whether the view differs from its default, for a view that has no single range. */
+  readonly modified = input<boolean | null>(null);
   readonly expanded = input(false);
   readonly expandable = input(true);
   readonly resetView = output<void>();
   readonly expandView = output<void>();
   readonly changed = computed(() => {
+    const modified = this.modified();
+    if (modified != null) {
+      return modified;
+    }
     const range = this.range();
     const full = this.full();
     return !!range && !!full && (range.start !== full.start || range.end !== full.end);

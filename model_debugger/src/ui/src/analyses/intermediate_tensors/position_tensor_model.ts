@@ -26,3 +26,21 @@ export const TENSOR_METRIC_SOURCES: Readonly<Record<string, string>> = {
 /** The catalog's id of a saved metric; older views name one by its row field. */
 export const tensorMetricId = (metric: string): string =>
   Object.entries(TENSOR_METRIC_SOURCES).find(([, source]) => source === metric)?.[0] ?? metric;
+
+/** Ordered list of Tensor Inspection plot modes. */
+export const INSPECTION_PLOTS = ['index', 'scatter', 'delta'] as const;
+
+/** Plot modes available in Tensor Inspection. */
+export type InspectionPlot = (typeof INSPECTION_PLOTS)[number];
+
+/** Display labels for each Tensor Inspection plot mode. */
+export const INSPECTION_PLOT_LABELS: Readonly<Record<InspectionPlot, string>> = {
+  index: 'Line chart',
+  scatter: 'Scatter plot',
+  delta: 'Difference',
+};
+
+/** Returns whether `value` is a valid `InspectionPlot`. */
+export function isInspectionPlot(value: unknown): value is InspectionPlot {
+  return typeof value === 'string' && Object.hasOwn(INSPECTION_PLOT_LABELS, value);
+}

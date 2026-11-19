@@ -30,7 +30,10 @@ import {ViewActions} from '../../widgets/charts/view_actions';
 import {tensorPointLabel} from './tensor_labels';
 import {syncPointInfo, syncPointInLayer, syncPointsForLayer} from './sync_points';
 import {
+  INSPECTION_PLOT_LABELS,
+  INSPECTION_PLOTS,
   LayerActivationInspection,
+  type InspectionPlot,
   type LayerActivationInspectionState,
 } from './layer_activation_inspection';
 import {MatIconModule} from '@angular/material/icon';
@@ -292,37 +295,46 @@ export class GraphMetricPanel {
     this.rangeChart()?.locateKind(this.label(), position, layer);
   }
   readonly view = signal<'heatmap' | 'lineChart' | 'graph'>('heatmap');
+  private readonly comparisonHeatmapOption = 'Tensor Comparison · Heatmap';
+  private readonly comparisonLineOption = 'Tensor Comparison · Line chart';
+  private readonly comparisonGraphOption = 'Tensor Comparison · Graph Diff';
+  private readonly inspectionViewOptions = INSPECTION_PLOTS.map(
+    (plot) => `Tensor Inspection · ${INSPECTION_PLOT_LABELS[plot]}`,
+  );
   readonly visualizationOptions = [
-    'Tensor Comparison · Heatmap',
-    'Tensor Comparison · Line chart',
-    'Tensor Inspection · Line chart',
-    'Tensor Inspection · Scatter plot',
-    'Tensor Comparison · Graph Diff',
+    this.comparisonHeatmapOption,
+    this.comparisonLineOption,
+    ...this.inspectionViewOptions,
+    this.comparisonGraphOption,
   ];
   readonly visualizationGroups = [
     {
       label: 'Tensor Comparison',
       options: [
-        this.visualizationOptions[0],
-        this.visualizationOptions[1],
-        this.visualizationOptions[4],
+        this.comparisonHeatmapOption,
+        this.comparisonLineOption,
+        this.comparisonGraphOption,
       ],
     },
-    {label: 'Tensor Inspection', options: this.visualizationOptions.slice(2, 4)},
+    {label: 'Tensor Inspection', options: this.inspectionViewOptions},
   ];
-  readonly visualizationLabels = {
-    'Tensor Comparison · Graph Diff': 'Graph Diff',
-    'Tensor Comparison · Heatmap': 'Heatmap',
-    'Tensor Comparison · Line chart': 'Line chart',
-    'Tensor Inspection · Line chart': 'Line chart',
-    'Tensor Inspection · Scatter plot': 'Scatter plot',
+  readonly visualizationLabels: Readonly<Record<string, string>> = {
+    [this.comparisonGraphOption]: 'Graph Diff',
+    [this.comparisonHeatmapOption]: 'Heatmap',
+    [this.comparisonLineOption]: 'Line chart',
+    ...Object.fromEntries(
+      INSPECTION_PLOTS.map((plot) => [
+        `Tensor Inspection · ${INSPECTION_PLOT_LABELS[plot]}`,
+        INSPECTION_PLOT_LABELS[plot],
+      ]),
+    ),
   };
   readonly visualizationLabel = computed(() =>
     this.view() === 'graph'
-      ? this.visualizationOptions[4]
+      ? this.comparisonGraphOption
       : this.view() === 'heatmap'
-        ? this.visualizationOptions[0]
-        : this.visualizationOptions[1],
+        ? this.comparisonHeatmapOption
+        : this.comparisonLineOption,
   );
   tokenRepresentative(bin: KvRangeBin, layer = this.selected()?.layer): number {
     const row = this.rows().find((row) => row.layer === layer) ?? this.rows()[0];
@@ -372,7 +384,11 @@ export class GraphMetricPanel {
             : null,
         reduction: previous?.reduction ?? 'mean',
         visibleRuntimes: previous?.visibleRuntimes ?? ['ref', 'target'],
-        plot: value.endsWith('Scatter plot') ? 'scatter' : 'index',
+        plot:
+          INSPECTION_PLOTS.find(
+            (candidate: InspectionPlot) =>
+              value === `Tensor Inspection · ${INSPECTION_PLOT_LABELS[candidate]}`,
+          ) ?? 'index',
       };
       this.inspectionInitial.set(initial);
       this.inspectionState.set(initial);

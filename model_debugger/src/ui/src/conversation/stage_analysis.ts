@@ -22,6 +22,7 @@ import {
   PER_RUNTIME_METRICS,
   FINAL_LOGIT_METRICS,
   isFinalLogitMetric,
+  isInspectionPlot,
   parseKvView,
   type GraphPanelState,
   type KvViewSnapshot,
@@ -176,7 +177,7 @@ function validActivationInspection(value: LayerActivationInspectionState): boole
   return (
     value !== null &&
     typeof value === 'object' &&
-    ['index', 'scatter'].includes(value.plot) &&
+    isInspectionPlot(value.plot) &&
     Number.isInteger(value.position) &&
     value.position >= 0 &&
     (value.layer === null || (Number.isInteger(value.layer) && value.layer >= 0)) &&

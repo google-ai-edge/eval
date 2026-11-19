@@ -461,7 +461,11 @@ describe('Activation comparison toolbar', () => {
       },
       {
         label: 'Tensor Inspection',
-        options: ['Tensor Inspection · Line chart', 'Tensor Inspection · Scatter plot'],
+        options: [
+          'Tensor Inspection · Line chart',
+          'Tensor Inspection · Scatter plot',
+          'Tensor Inspection · Difference',
+        ],
       },
     ]);
     const controls = fixture.debugElement.query(By.directive(HeatmapControls))

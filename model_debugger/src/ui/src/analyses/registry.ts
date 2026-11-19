@@ -65,10 +65,14 @@ export function analysisOf(kind: AnalysisKind): StageAnalysisId {
 
 export {
   FINAL_LOGIT_METRICS,
+  INSPECTION_PLOTS,
+  INSPECTION_PLOT_LABELS,
   PER_RUNTIME_METRICS,
   isFinalLogitMetric,
+  isInspectionPlot,
   parseKvView,
   type GraphPanelState,
+  type InspectionPlot,
   type KvViewSnapshot,
   type LayerActivationInspectionState,
   type LogitPanelState,

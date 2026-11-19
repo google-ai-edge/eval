@@ -19,9 +19,11 @@
 import {Injectable, afterNextRender, inject} from '@angular/core';
 
 import {
+  INSPECTION_PLOT_LABELS,
   type StagePoint,
   type StateLocation,
   catalogMetricId,
+  isInspectionPlot,
   tensorMetricId,
   tensorPointLabel,
 } from '../../../analyses/registry';
@@ -105,9 +107,9 @@ export class AnalysisInfo {
             ? 'Scatter plot'
             : 'Line chart'
           : inspection
-            ? plot === 'scatter'
-              ? 'Scatter plot'
-              : 'Line chart'
+            ? isInspectionPlot(plot)
+              ? INSPECTION_PLOT_LABELS[plot]
+              : INSPECTION_PLOT_LABELS.index
             : view === 'graph'
               ? 'Graph Diff'
               : view === 'heatmap' || (!view && ['kv', 'activations'].includes(current.kind))
@@ -176,7 +178,11 @@ export class AnalysisInfo {
     }
     const graph = this.panels.graphPanels().find((p) => p.panelId() === panel.id);
     if (graph?.inspectionMode()) {
-      return `Tensor Inspection · ${graph.inspection()?.plot() === 'scatter' ? 'Scatter plot' : 'Line chart'}`;
+      const plot = graph.inspection()?.plot();
+      const label = isInspectionPlot(plot)
+        ? INSPECTION_PLOT_LABELS[plot]
+        : INSPECTION_PLOT_LABELS.index;
+      return `Tensor Inspection · ${label}`;
     }
     if (graph) {
       return `${graph.metricName()} · ${graph.view() === 'graph' ? 'Graph Diff' : graph.view() === 'heatmap' ? 'Heatmap' : 'Line chart'} · Sync points: ${graph.anchor()}`;

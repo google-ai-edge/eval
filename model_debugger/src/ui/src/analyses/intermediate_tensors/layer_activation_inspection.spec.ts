@@ -28,6 +28,7 @@ import {CaptureStore} from '../../server/capture_store';
 import type {PlotHost, PlotlyApi} from '../../widgets/plotly_loader';
 import {ChannelChart} from '../../widgets/charts/channel_chart';
 import {ScatterChart} from '../../widgets/charts/scatter_chart';
+import {TensorHeatmap} from '../../widgets/charts/tensor_heatmap';
 import {TensorIndexControl} from '../../widgets/charts/tensor_index_control';
 import {
   LayerActivationInspection,
@@ -209,6 +210,73 @@ describe('LayerActivationInspection', () => {
     expect(fixture.nativeElement.querySelector('[aria-label="Display"]').disabled).toBe(true);
     view.chooseView('Tensor Comparison · Heatmap');
     expect(compare).toHaveBeenCalledWith('heatmap');
+    fixture.destroy();
+  });
+  it('shows |Target − Ref| as a heatmap of the compared shape in the Difference view', async () => {
+    const {fixture, view} = create();
+    await settle(fixture);
+
+    view.chooseView('Tensor Inspection · Difference');
+    await settle(fixture);
+
+    expect(view.plot()).toBe('delta');
+    expect(view.visualizationLabel()).toBe('Tensor Inspection · Difference');
+    expect(view.captureView().plot).toBe('delta');
+    expect(fixture.debugElement.query(By.directive(ChannelChart))).toBeNull();
+    const heatmap = fixture.debugElement.query(By.directive(TensorHeatmap))
+      .componentInstance as TensorHeatmap;
+    expect(heatmap.rows()).toHaveLength(320);
+    expect(heatmap.shape()).toEqual([320]);
+    expect(heatmap.differing()).toBe(320);
+    expect(fixture.nativeElement.textContent).toContain('320 of 320 elements differ');
+    expect(fixture.nativeElement.querySelector('.tensor-line-canvas.difference')).not.toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Side bars');
+    expect(fixture.nativeElement.querySelector('[aria-label="Display"]').disabled).toBe(true);
+    const reset = fixture.nativeElement.querySelector('[aria-label="Reset view"]');
+    expect(reset.disabled).toBe(true);
+
+    heatmap.zoom.set({r0: 0, r1: 1, c0: 0, c1: 128});
+    fixture.detectChanges();
+    expect(reset.disabled).toBe(false);
+
+    reset.click();
+    fixture.detectChanges();
+    expect(heatmap.zoom()).toBeNull();
+
+    view.setSideBars('Max |Δ|');
+    fixture.detectChanges();
+    expect(heatmap.sideBars()).toBe('max');
+
+    view.chooseView('Tensor Inspection · Line chart');
+    fixture.detectChanges();
+    expect(fixture.debugElement.query(By.directive(TensorHeatmap))).toBeNull();
+    expect(fixture.debugElement.query(By.directive(ChannelChart))).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.tensor-line-canvas.difference')).toBeNull();
+
+    view.chooseView('Tensor Inspection · Scatter plot');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.tensor-line-canvas')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.tensor-line-canvas.difference')).toBeNull();
+    fixture.destroy();
+  });
+  it('has no Difference heatmap where the server could not compare the sides', async () => {
+    const {fixture, view} = create(async (_capture, _turn, _phase, query) =>
+      vector(query, 320, {ref: (i) => i, target: (i) => i}, false),
+    );
+    await settle(fixture);
+    view.chooseView('Tensor Inspection · Difference');
+    fixture.detectChanges();
+    expect(view.deltaShape()).toBeNull();
+    expect(fixture.debugElement.query(By.directive(TensorHeatmap))).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain(
+      'Matching Reference and Target tensor shapes are required for a paired plot.',
+    );
+    fixture.destroy();
+  });
+  it('restores a saved Difference view', async () => {
+    const {fixture, view} = create(undefined, {plot: 'delta', position: 33, layer: 2});
+    await settle(fixture);
+    expect(view.plot()).toBe('delta');
     fixture.destroy();
   });
   it('restores valid view state, resolves stale coordinates, and preserves zoom when changing tensors', async () => {
