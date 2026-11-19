@@ -40,9 +40,9 @@ export class TokenDiffFind {
   protected readonly tokens = inject(TokenDiff);
   protected readonly analyses = inject(StageAnalyses);
   protected readonly dom = inject(TokenDiffDom);
-  readonly alignmentChoices = ['Context', 'Steps'];
+  readonly alignmentChoices = ['Steps', 'Context'];
   readonly alignmentDescriptions = {
-    Context: 'Match output content',
     Steps: 'Match generation-step index',
+    Context: 'Match output content',
   };
 }

@@ -56,7 +56,7 @@ export class ExpandedAnalysis {
         pair,
         position:
           start +
-          (this.conversation.alignment() === 'content'
+          (panel.stage === 'prefill' || this.conversation.alignment() === 'content'
             ? pair.index
             : ((pair.ref ?? pair.target)?.step ?? pair.index)),
       }))

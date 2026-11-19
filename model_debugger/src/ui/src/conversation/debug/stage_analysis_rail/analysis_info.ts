@@ -427,7 +427,7 @@ export class AnalysisInfo {
           ])
         : this.tokens.rows(panel.turn);
     const pair = pairs.find((p) =>
-      this.conversation.alignment() === 'content'
+      panel.stage === 'prefill' || this.conversation.alignment() === 'content'
         ? start + p.index === value.position
         : [p.ref, p.target].some((t) => t && t.step + start === value.position),
     );

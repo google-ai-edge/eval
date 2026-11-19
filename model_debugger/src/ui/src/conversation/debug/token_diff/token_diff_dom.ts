@@ -108,7 +108,9 @@ export class TokenDiffDom {
       const start = stageStart(info, input ? 'prefill' : 'decode');
       const position = token && start !== null ? start + token.step : null;
       const coordinate =
-        this.conversation.alignment() === 'content' && start !== null ? start + row : position;
+        (input || this.conversation.alignment() === 'content') && start !== null
+          ? start + row
+          : position;
       const matches = (
         panel: StageAnalysisPanel | undefined,
         interval: RangeSelection | null | undefined,

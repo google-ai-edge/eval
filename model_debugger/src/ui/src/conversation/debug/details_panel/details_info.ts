@@ -188,7 +188,10 @@ export class DetailsInfo {
     const token = pair?.target ?? pair?.ref;
     const position =
       start !== null && token
-        ? start + (this.conversation.alignment() === 'content' ? selected.index : token.step)
+        ? start +
+          (stage === 'prefill' || this.conversation.alignment() === 'content'
+            ? selected.index
+            : token.step)
         : null;
     return {
       turn: selected.turn,
@@ -214,7 +217,7 @@ export class DetailsInfo {
     }
     return String(
       start +
-        (this.conversation.alignment() === 'content'
+        (selection?.stage === 'prefill' || this.conversation.alignment() === 'content'
           ? pair.index
           : ((pair.target ?? pair.ref)?.step ?? pair.index)),
     );
@@ -243,7 +246,7 @@ export class DetailsInfo {
     if (pairs.length) {
       const last = Math.max(
         ...pairs.map((pair) =>
-          this.conversation.alignment() === 'content'
+          stage === 'prefill' || this.conversation.alignment() === 'content'
             ? pair.index
             : ((pair.ref ?? pair.target)?.step ?? pair.index),
         ),
@@ -276,7 +279,7 @@ export class DetailsInfo {
     return pairs.filter((pair) => {
       const position =
         start +
-        (this.conversation.alignment() === 'content'
+        (stage === 'prefill' || this.conversation.alignment() === 'content'
           ? pair.index
           : ((pair.ref ?? pair.target)?.step ?? pair.index));
       return position >= range.start && position < range.end;

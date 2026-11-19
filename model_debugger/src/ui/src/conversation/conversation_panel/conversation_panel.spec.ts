@@ -188,8 +188,14 @@ describe('ConversationPanel', () => {
     };
   }
 
-  it("keeps the Chat's Token Diff view and where its reading was", () => {
+  it("defaults alignment to Steps while keeping Prefill on Context and preserving the Chat's Token Diff view", () => {
     const first = open();
+    expect(first.conversation.alignment()).toBe('steps');
+    first.conversation.state.session.set(sampleSession());
+    expect(first.tokens.kvAlignments().get('1:decode')?.alignment).toBe('steps');
+    expect(first.tokens.kvAlignments().get('1:prefill')?.alignment).toBe('content');
+
+    first.conversation.alignment.set('content');
     first.tokens.formula.set('token_match');
     first.tokens.panelWidth.set(480);
     const reading = first.fixture.nativeElement.querySelector('.reading') as HTMLElement;
@@ -203,6 +209,7 @@ describe('ConversationPanel', () => {
 
     const second = open();
     expect(second.conversation.contextKey).toBe(first.conversation.contextKey);
+    expect(second.conversation.alignment()).toBe('content');
     expect(second.tokens.formula()).toBe('token_match');
     expect(second.tokens.panelWidth()).toBe(480);
     expect(second.conversation.memory.readingPositions.get(key)?.scrollTop).toBe(240);

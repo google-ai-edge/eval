@@ -79,7 +79,7 @@ export class ConversationState {
   /** What this chat's conversation was left with when the page last showed it. */
   readonly memory = inject(ConversationMemory);
   /** The Debug reading's alignment of the two sides' tokens. */
-  readonly alignment = signal<AlignmentMode>('content');
+  readonly alignment = signal<AlignmentMode>('steps');
   readonly thinkingExpanded = signal(new Set<string>());
   /** The long-text layout of both readings, set up by ConversationPanel. */
   virtualizer: FlowVirtualizer | null = null;

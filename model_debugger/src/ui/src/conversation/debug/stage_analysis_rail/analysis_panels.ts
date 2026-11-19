@@ -256,7 +256,10 @@ export class AnalysisPanels {
       (stageStart(
         this.conversation.turns().find((t) => t.n === panel.turn),
         panel.stage,
-      ) ?? 0) + (this.conversation.alignment() === 'content' ? pair.index : token.step);
+      ) ?? 0) +
+      (panel.stage === 'prefill' || this.conversation.alignment() === 'content'
+        ? pair.index
+        : token.step);
     return {start, end: start + 1};
   }
   readonly kvDetailSelection = computed(() => {
