@@ -62,10 +62,7 @@ vm.createContext(context);
 const start = html.indexOf('function anchorTag(');
 const end = html.indexOf('function blockSummaryWidth(');
 assert.ok(start > 0 && end > start, 'Expected blockMetric slice in index.html');
-vm.runInContext(
-  html.slice(start, end),
-  context,
-);
+vm.runInContext(html.slice(start, end), context);
 const infoStart = html.indexOf('function infoSection(');
 const infoEnd = html.indexOf('function infoTable(');
 const infoTableEnd = html.indexOf('\n', infoEnd);
@@ -132,7 +129,18 @@ assert.equal(minSummary.value, 0);
 assert.equal(minSummary.text, '0');
 assert.equal(minSummary.bg, '#f7f5ff');
 
-// 1b. Layer-fallback blocks (`by: 'layer'`) must not aggregate layer-wide points.
+// 1b. Includes formatted operator name in summary title and Tensor Details when present.
+context.analysisContext.summary = 'max';
+context.analysisContext.model.points.ref['decode:36:0'].operator = 'odml.runtime_bmm';
+const namedSummary = context.blockMetric(group);
+assert.ok(namedSummary.title.includes('decode:36:0 (odml.runtime_bmm)'));
+const operatorDetails = context.archSelectedTensorDetails();
+assert.ok(operatorDetails.includes('data-tensor-heading="decode:36:0 · odml.runtime_bmm"'));
+assert.ok(operatorDetails.includes('Operator'));
+assert.ok(operatorDetails.includes('>odml.runtime_bmm<'));
+assert.ok(operatorDetails.includes('data-tensor-heading="decode:10:0"'));
+
+// 1c. Layer-fallback blocks (`by: 'layer'`) must not aggregate layer-wide points.
 context.analysisContext.model.blocks.ref[0].Attention.by = 'layer';
 const fallbackBlock = context.blockMetric(group);
 assert.equal(fallbackBlock.value, null);
@@ -159,4 +167,33 @@ assert.equal(opSummary.value, 1.25e-5);
 assert.equal(opSummary.text, '1.25e-5');
 assert.equal(opSummary.available, 1);
 
-console.log('Layer Arch block summaries: min/max, end-anchor exclusion, empty and op-tag fallback passed.');
+// 4. Composite nodes in mapping-pane.js show their composite operator name.
+const paneJs = fs.readFileSync(
+  new URL('../public/graph-arch-preview/mapping-pane.js', import.meta.url),
+  'utf8',
+);
+const labelStart = paneJs.indexOf('function nodeLabel(');
+const labelEnd = paneJs.indexOf('function prepare(');
+assert.ok(labelStart > 0 && labelEnd > labelStart, 'Expected nodeLabel in mapping-pane.js');
+const paneContext = {};
+vm.createContext(paneContext);
+vm.runInContext(paneJs.slice(labelStart, labelEnd), paneContext);
+assert.equal(
+  paneContext.nodeLabel({
+    label: 'stablehlo_composite',
+    attrs: [{key: 'name', value: '#vhlo.string_v1<"odml.runtime_bmm">'}],
+  }),
+  'odml.runtime_bmm',
+);
+assert.equal(
+  paneContext.nodeLabel({
+    label: 'stablehlo_composite',
+    attrs: [{key: 'name', value: 'odml.rms_norm'}],
+  }),
+  'odml.rms_norm',
+);
+assert.equal(paneContext.nodeLabel({label: 'softmax', attrs: []}), 'softmax');
+
+console.log(
+  'Layer Arch block summaries: min/max, end-anchor exclusion, empty, op-tag fallback and composite names passed.',
+);

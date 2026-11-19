@@ -2016,16 +2016,15 @@ def analysis(found: Stage) -> dict[str, Any]:
       as `{id, label, default}`, `default` whether it is one of an
       architecture's (Layout.defaults), not an operator chosen inside the
       layers; `points` each point that has a place, with its graph,
-      name, shape and dtype, its node in the model's graph (`graph_node`:
-      `{graph, node, output}`, the signature's graph, the operator's node and
-      the output's id there, model_graph's), how many cells hold it and, when
-      none does, why (`reasons`); `rows` the cells, each `{position, layer,
-      anchor, status, reasons, shape, metrics, points}`, a metric as `{value,
-      reasons}`, a cell without a value saying why, `points` per side that
-      has
-      one the id of the point its value is of; `columns` per column the
-      forward pass each side reads it from, `{position, ref, target}`, a
-      side's `{signature, step}` or None (_columns()); `not_observed` why a
+      name, shape, dtype and operator, its node in the model's graph
+      (`graph_node`: `{graph, node, output}`, the signature's graph, the
+      operator's node and the output's id there, model_graph's), how many
+      cells hold it and, when none does, why (`reasons`); `rows` the cells,
+      each `{position, layer, anchor, status, reasons, shape, metrics,
+      points}`, a metric as `{value, reasons}`, a cell without a value saying
+      why, `points` per side that has one the id of the point its value is of;
+      `columns` per column the forward pass each side reads it from,
+      `{position, ref, target}`, a side's `{signature, step}` or None
       point of the model that `points` does not list has no cell
       (POINT_NOT_OBSERVED); `unpaired` why each point chosen of a LiteRT-LM
       side that is placed nowhere is not (NO_COUNTERPART); `omitted` why
@@ -2069,6 +2068,7 @@ def analysis(found: Stage) -> dict[str, Any]:
               'shape': list(point.shape),
               'context_axes': list(point.context_axes),
               'dtype': point.dtype,
+              'operator': point.operator,
               'graph_node': _graph_node(point, places),
               'cells': held[point.id],
               'reasons': found.unheld.get(point.id, []),

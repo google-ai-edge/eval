@@ -23,7 +23,7 @@ import type {
   Skeleton,
 } from '../../server/contracts/artifacts';
 import type {PositionAnalysis, PositionTensorRow} from '../../server/contracts/position_analysis';
-import {graphArchModel, type ModelGraphFacts} from './graph_arch_data';
+import {formatPointOperator, graphArchModel, type ModelGraphFacts} from './graph_arch_data';
 
 const REASONS: Record<string, string> = {
   tensor_position_not_produced: 'No forward pass of this turn produced the token at the position.',
@@ -201,6 +201,7 @@ const analysis: PositionAnalysis = {
       shape: [8],
       context_axes: [],
       dtype: 'float32',
+      operator: 'STABLEHLO_COMPOSITE odml.runtime_bmm',
       cells: 2,
       reasons: [],
     },
@@ -418,5 +419,18 @@ describe('graphArchModel', () => {
     const undrawn = model(4, {facts: {ref: {...facts, status: {status: 'unavailable', text}}}});
     expect(undrawn.state).toBe('unavailable');
     expect(undrawn.text, 'the server’s text, as it is').toBe(text);
+  });
+
+  it('formats and exposes each observed point’s operator name', () => {
+    expect(formatPointOperator('STABLEHLO_COMPOSITE odml.runtime_bmm')).toBe('odml.runtime_bmm');
+    expect(formatPointOperator('CUSTOM custom_op')).toBe('custom_op');
+    expect(formatPointOperator('FULLY_CONNECTED')).toBe('fully_connected');
+    expect(formatPointOperator('softmax')).toBe('softmax');
+    expect(formatPointOperator('')).toBe('');
+
+    const found = model(4);
+
+    expect(found.points.ref['decode:5:0'].operator).toBe('odml.runtime_bmm');
+    expect(found.points.ref['decode:9:0'].operator).toBeUndefined();
   });
 });

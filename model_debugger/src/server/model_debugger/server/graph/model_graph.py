@@ -101,8 +101,19 @@ CONTEXT_AXES = 'context_axes'
 # The attribute regroup() keeps a moved operator's namespace in.
 CONVERTER_NAMESPACE = 'converter_namespace'
 _COMPONENT = re.compile(r'^(.+)_(\d+)$')
+_COMPOSITE_LABEL = 'stablehlo_composite'
+_VHLO_STRING = re.compile(r'^#vhlo\.string_v1<"(.*)">$')
 # The share of a signature's operators its layers' scopes hold, at least.
 MIN_LAYER_SHARE = 0.5
+
+
+def composite_name(node: dict[str, Any]) -> str:
+  """Returns a StableHLO composite node's operator name, or ''."""
+  if node.get('label') != _COMPOSITE_LABEL:
+    return ''
+  raw = attrs(node).get('name', '').strip()
+  match = _VHLO_STRING.match(raw)
+  return (match.group(1) if match else raw).strip()
 
 
 def signature_graphs(
@@ -473,7 +484,8 @@ def annotate(
   (Model Explorer's), `point_id`, `observable` ('true' or 'false'), and
   when they apply `reason` (why it cannot be observed), `layer`,
   `layer_output` ('true') and `context_axes` (axes of the model's KV
-  length, comma-separated).
+  length, comma-separated). Each `stablehlo_composite` node also gets
+  its composite name as its `label`.
 
   Args:
       graph: The signature's graph (signature_graphs()).
@@ -514,7 +526,11 @@ def annotate(
       outputs.append(
           {**entry, 'attrs': entry.get('attrs', []) + point_facts(point)}
       )
-    nodes.append({**node, 'outputsMetadata': outputs})
+    nodes.append({
+        **node,
+        'label': composite_name(node) or node['label'],
+        'outputsMetadata': outputs,
+    })
   return {**graph, 'nodes': nodes}
 
 

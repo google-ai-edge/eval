@@ -443,6 +443,7 @@ class TensorAnalysisTest(absltest.TestCase):
     self.assertEqual(answer['pairing'], {'status': 'paired', 'reasons': []})
     points = {p['id']: p for p in answer['points']}
     self.assertEqual(points['decode:5:0']['context_axes'], [3])
+    self.assertEqual(points['decode:5:0']['operator'], 'MUL')
     self.assertEqual(points['decode:5:0']['cells'], generated)
     self.assertEqual(points['decode:5:0']['reasons'], [])
     # Its node in the model's graph: the signature's graph, op, output.

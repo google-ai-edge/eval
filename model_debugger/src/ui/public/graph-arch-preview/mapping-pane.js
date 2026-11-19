@@ -24,6 +24,12 @@ const send=d=>parent.postMessage({channel,side,revision,...d},location.origin);
 window.modelExplorer.assetFilesBaseUrl='../vendor/model-explorer/static_files';window.modelExplorer.workerScriptPath='../vendor/model-explorer/worker.js';
 const canConfigure=t=>t&&!t.boundary;
 function paint(){document.documentElement.dataset.theme=theme;for(const [k,v] of Object.entries(palette))document.documentElement.style.setProperty('--'+k,v);if(ready){e.setPanePalette(palette,0);e.setAttribute('data-theme',theme);if(e.shadowRoot&&!e.shadowRoot.querySelector('#mapping-theme')){const link=document.createElement('link');link.id='mapping-theme';link.rel='stylesheet';link.href='native-model-theme.css?v=86';e.shadowRoot.append(link);}for(const [k,v] of Object.entries(palette))e.style.setProperty('--'+k,v);}lastGeometry='';renderOverlay();}
+function nodeLabel(n){
+ if(n.label!=='stablehlo_composite')return n.label;
+ const raw=(n.attrs||[]).find(a=>a.key==='name')?.value?.trim()||'';
+ const m=raw.match(/^#vhlo\.string_v1<"(.*)">$/);
+ return (m?m[1]:raw).trim()||n.label;
+}
 function prepare(graph){
  const tensorMap=new Map(),tensors={},nodes=[],edges=[];let slot=0;
  for(const n of graph.nodes){const outputs=[];for(const m of n.outputsMetadata||[]){const attrs=Object.fromEntries((m.attrs||[]).map(a=>[a.key,a.value])),i=slot++,shape=String(attrs.tensor_shape||attrs.shape||''),match=shape.match(/^([^\[]*)\[(.*)\]$/),label=attrs.tensor_index!=null?'t'+attrs.tensor_index:n.id+':'+m.id;
@@ -31,7 +37,7 @@ function prepare(graph){
   nodes.push({id:n.id,outputs});
  }
  for(const n of graph.nodes)for(const edge of n.incomingEdges||[]){const tensor=tensorMap.get(edge.sourceNodeId+'\0'+edge.sourceNodeOutputId);if(tensor!=null)edges.push({from:edge.sourceNodeId,to:n.id,tensor});}
- raw={nodes,edges,tensors};return graph.nodes.map(n=>({...n,id:side+'-op-'+n.id,subgraphIds:[],incomingEdges:(n.incomingEdges||[]).map(e=>({...e,sourceNodeId:side+'-op-'+e.sourceNodeId}))}));
+ raw={nodes,edges,tensors};return graph.nodes.map(n=>({...n,id:side+'-op-'+n.id,label:nodeLabel(n),subgraphIds:[],incomingEdges:(n.incomingEdges||[]).map(e=>({...e,sourceNodeId:side+'-op-'+e.sourceNodeId}))}));
 }
 async function mount(graph){const generation=++mountId;ready=false;lastGeometry='';$('host').replaceChildren();$('tensor-overlay').replaceChildren();closePicker();
  // A region with no operators says why, in the server's words.

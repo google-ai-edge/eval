@@ -379,6 +379,52 @@ class ModelGraphTest(absltest.TestCase):
     with self.assertRaisesRegex(ValueError, 'not the model'):
       model_graph.annotate(self.graphs['decode'], moved, 'decode')
 
+  def test_names_composite_operators_by_their_composite_name(self):
+    graph = {
+        'id': 'decode',
+        'nodes': [
+            {
+                'id': '0',
+                'label': 'stablehlo_composite',
+                'namespace': 'layer_0',
+                'attrs': [{
+                    'key': 'name',
+                    'value': '#vhlo.string_v1<"odml.runtime_bmm">',
+                }],
+                'outputsMetadata': [],
+            },
+            {
+                'id': '1',
+                'label': 'stablehlo_composite',
+                'namespace': 'layer_0',
+                'attrs': [{'key': 'name', 'value': 'odml.rms_norm'}],
+                'outputsMetadata': [],
+            },
+            {
+                'id': '2',
+                'label': 'stablehlo_composite',
+                'namespace': 'layer_0',
+                'attrs': [],
+                'outputsMetadata': [],
+            },
+            {
+                'id': '3',
+                'label': 'add',
+                'namespace': 'layer_0',
+                'attrs': [{'key': 'name', 'value': 'ignored'}],
+                'outputsMetadata': [],
+            },
+        ],
+    }
+
+    annotated = model_graph.annotate(graph, (), 'decode')
+
+    self.assertEqual(
+        [node['label'] for node in annotated['nodes']],
+        ['odml.runtime_bmm', 'odml.rms_norm', 'stablehlo_composite', 'add'],
+    )
+    self.assertEqual(graph['nodes'][0]['label'], 'stablehlo_composite')
+
   def test_a_graph_is_a_collection_of_its_own(self):
     """Model Explorer's collection: a label and the one graph."""
     found = model_graph.collection(

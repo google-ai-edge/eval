@@ -217,7 +217,8 @@ function blockMetric(g){
  for(let i=1;i<valid.length;i++){
   if(mode==='min'?valid[i].tag.value<chosen.tag.value:valid[i].tag.value>chosen.tag.value)chosen=valid[i];
  }
- return {value:chosen.tag.value,mode,available:valid.length,total:internal.length,text:chosen.tag.text,bg:chosen.tag.bg,fg:chosen.tag.fg,title:`Internal ${modeLabel} · ${valid.length} observed · ${chosen.point} · ${chosen.tag.text}`};
+ const chosenLabel=chosen.tag.operator?`${chosen.point} (${chosen.tag.operator})`:chosen.point;
+ return {value:chosen.tag.value,mode,available:valid.length,total:internal.length,text:chosen.tag.text,bg:chosen.tag.bg,fg:chosen.tag.fg,title:`Internal ${modeLabel} · ${valid.length} observed · ${chosenLabel} · ${chosen.tag.text}`};
 }
 function blockSummaryWidth(g){return metricTagWidth(blockMetric(g))+20;}
 function collapsedBlockWidth(g){return Math.max(80,Math.ceil(labelWidth(g.name,500)+40),blockSummaryWidth(g)+24);}
@@ -460,7 +461,7 @@ function archSelectedTensorDetails(){
   if(internal.length){
    return infoSection('selected-tensor','Tensor Details',internal.map(({point,tag})=>{
     const value=tag.title?.startsWith(point+' · ')?tag.title.slice(point.length+3):(tag.title||'—');
-    return `<div data-tensor-heading="${escape(point)}">${infoTable([['Point',point],['Value',value]],true)}</div>`;
+    return `<div data-tensor-heading="${escape(tag.operator?point+' · '+tag.operator:point)}">${infoTable([['Point',point],...(tag.operator?[['Operator',tag.operator]]:[]),['Value',value]],true)}</div>`;
    }).join(''));
   }
   const ids=blockInternalTensorIds(group);
@@ -743,7 +744,7 @@ function renderMappingDetails(){
 }
 async function openMapping(anchor){const context=mappingContext(anchor);hideIconTooltip();mappingState.request++;mappingState.active=true;mappingState.editing=false;mappingState.draftSide=null;mappingState.selectionBeforeDraft=null;mappingState.graphs={reference:null,target:null};mappingState.context=context;mappingState.selected={reference:null,target:null};mappingState.signatures=JSON.stringify(analysisContext?.model?.signatures??null);mappingState.options={reference:executionOptions(context,'reference'),target:executionOptions(context,'target')};const remembered=mappingState.views.get(mappingViewKey(context))||{};
  pairViewState.detailsWasOpen=isDetailsOpen();$('pair-view').hidden=false;$('pair-view').parentElement.classList.add('pair-active');$('workspace').classList.remove('details-hidden');$('workspace').classList.add('pair-mode','show-details');$('viewport').inert=true;$('details-toggle').setAttribute('aria-expanded','true');$('details').hidden=true;$('pair-details').hidden=false;
- $('pair-graphs').innerHTML=['reference','target'].map(side=>`<section class="mapping-pane"><iframe title="${side==='reference'?'Reference':'Target'} execution graph" data-mapping-pane="${side}" src="mapping-pane.html?side=${side}&v=179"></iframe></section>`).join('');renderMappingNavigation();renderMappingDetails();for(const side of ['reference','target'])await chooseMappingGraph(side,mappingState.options[side].some(o=>o.key===remembered[side])?remembered[side]:mappingState.options[side][0]?.key||null);$('pair-view').querySelector('iframe')?.focus();
+ $('pair-graphs').innerHTML=['reference','target'].map(side=>`<section class="mapping-pane"><iframe title="${side==='reference'?'Reference':'Target'} execution graph" data-mapping-pane="${side}" src="mapping-pane.html?side=${side}&v=180"></iframe></section>`).join('');renderMappingNavigation();renderMappingDetails();for(const side of ['reference','target'])await chooseMappingGraph(side,mappingState.options[side].some(o=>o.key===remembered[side])?remembered[side]:mappingState.options[side][0]?.key||null);$('pair-view').querySelector('iframe')?.focus();
 }
 function closeMapping(){mappingState.views.set(mappingViewKey(mappingState.context),{...mappingState.choices});mappingState.request++;mappingState.active=false;mappingState.editing=false;mappingState.draftSide=null;mappingState.selectionBeforeDraft=null;hidePairDetails();publishMappingView();$('pair-view').hidden=true;$('pair-view').parentElement.classList.remove('pair-active');$('workspace').classList.remove('pair-mode');$('viewport').inert=false;setDetailsOpen(pairViewState.detailsWasOpen);draw();details();renderNavigation();$('viewport').focus();}
 window.addEventListener('message',ev=>{const d=ev.data;if(d?.channel!=='mapping-pane-v1'||ev.origin!==location.origin||!mappingState.active||!['reference','target'].includes(d.side))return;const frame=$('pair-graphs').querySelector(`[data-mapping-pane="${d.side}"]`);if(ev.source!==frame?.contentWindow)return;if(d.type==='mounted'){syncMappingPane(d.side,true);return;}if(d.revision!==mappingState.revisions[d.side])return;if(d.type==='cancel-selection'){cancelDraftPair();return;}if(d.type==='tensor'){const t=d.tensor,g=mappingState.graphs[d.side],n=g?.nodes.find(n=>n.id===t.node);if(!n||!(n.outputsMetadata||[]).some(m=>m.id===t.port)||t.id!==g.id+'::'+t.node+'::'+t.port||t.boundary)return;{
