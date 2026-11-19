@@ -43,7 +43,7 @@ main() {
   npm run build
   npm test
   local check
-  for check in graph_pairs mapping_pair_edit model_tree_metrics; do
+  for check in graph_pairs mapping_pair_edit model_tree_metrics block_metrics arch_fit; do
     if [[ -f "scripts/check_${check}.mjs" ]]; then
       node "scripts/check_${check}.mjs"
     fi
