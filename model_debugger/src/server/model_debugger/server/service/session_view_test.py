@@ -574,6 +574,30 @@ class SessionViewTest(absltest.TestCase):
         second['input_tokens'][0]['position'],
     )
 
+  def test_think_tags_are_in_the_thinking_phase(self):
+    """Qwen 3's `<think>` to `</think>` tokens are in the thinking phase."""
+    index = fixtures.capture(
+        self.tmp_path, [('Hi', ['a', 'b', 'c', 'd'], True)]
+    )
+    output = index.turns[0]['sides']['ref']['output']
+    for token, text in zip(output, ['<think>', 'hm', '</think>', 'ok']):
+      token['text'] = text
+
+    view = session_view.session_view(index, _RECORD, _CHAT)
+
+    self.assertEqual(
+        [
+            (t['text'], t['phase'])
+            for t in _conversation(view, 1, 'ref')['tokens'][:4]
+        ],
+        [
+            ('<think>', 'thinking'),
+            ('hm', 'thinking'),
+            ('</think>', 'thinking'),
+            ('ok', 'response'),
+        ],
+    )
+
   def test_markers_are_bar_delimited(self):
     """Markers are bar delimited."""
     special_ids = set()

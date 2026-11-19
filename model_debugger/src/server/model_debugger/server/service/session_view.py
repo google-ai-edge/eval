@@ -117,9 +117,10 @@ from model_debugger.server.session import session_store
 # plain `<b>` is text: it is a marker only with the bar.
 _MARKER = re.compile(r'<\|[^\s<>|]*>|<[^\s<>|]*\|>')
 _OPENER = re.compile(r'<\|[^\s<>|]*>')
-# Gemma's thinking channel: the reply's tokens from `<|channel>` to
-# `<channel|>` are its reasoning, as the runtime's jsonl shows them.
-_THINKING = ('<|channel>', '<channel|>')
+# Thinking markers, opening to closing: the reply's tokens from one to the
+# other are its reasoning, as the runtime's jsonl shows them. Gemma uses its
+# `<|channel>` channel; Qwen 3 uses `<think>` tags.
+_THINKING = {'<|channel>': '<channel|>', '<think>': '</think>'}
 # Where a token's text comes from when its own source names none: the
 # runner's tokenization of the same id in a prompt of this side.
 _TEXT_BASIS = 'runner prompt tokens'
@@ -1236,7 +1237,7 @@ def _conversation(
       for step, (token, kind) in enumerate(zip(entry['input'], kinds))
   ]
   tokens = []
-  thinking = False
+  closing = None
   output = entry['output']
   # A stop token of unknown id, as another sampler's is, is the token the
   # next turn carried in at its position: the runner fed it, and named it.
@@ -1255,12 +1256,13 @@ def _conversation(
       }]
   kinds = _kinds(output, special_ids)
   for step, (token, kind) in enumerate(zip(output, kinds)):
-    thinking = thinking or token['text'] == _THINKING[0]
+    if closing is None:
+      closing = _THINKING.get(token['text'])
     view = _token(token, names, step=step, kind=kind, steps=steps)
     view.update(
         source_forward_id=token['forward'],
         released=token['released'],
-        phase='thinking' if thinking else 'response',
+        phase='thinking' if closing is not None else 'response',
     )
     if token.get('stop'):
       view['stop'] = True
@@ -1274,7 +1276,8 @@ def _conversation(
           ),
       }
     tokens.append(view)
-    thinking = thinking and token['text'] != _THINKING[1]
+    if token['text'] == closing:
+      closing = None
 
   conversation = {
       'turn': turn['n'],
