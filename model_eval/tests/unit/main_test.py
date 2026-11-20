@@ -171,6 +171,35 @@ class MainTest(parameterized.TestCase):
         kwargs["eval_args"], {"endpoint": "op", "inference_only": True}
     )
 
+  @mock.patch("model_eval.cli.main.eval_pipeline.EvalPipeline")
+  def test_falsy_inference_only_string_runs_normal_eval(
+      self, mock_pipeline_cls
+  ):
+    mock_pipeline = mock.MagicMock()
+    mock_pipeline_cls.return_value = mock_pipeline
+    mock_pipeline.run.return_value.aggregated_metrics = {}
+    # A non-custom framework is only allowed when inference_only is falsy, so
+    # a successful run proves "False" is not treated as truthy. (Lowercase
+    # "false" is already JSON-decoded by _parse_csv_args; "False" is not.)
+    result = testing.CliRunner().invoke(
+        main.cli,
+        [
+            "--runner",
+            "litert-lm",
+            "--runner-args",
+            "model_path=fake.tflite",
+            "--framework",
+            "lm-eval",
+            "--tasks",
+            "mmlu",
+            "--eval-args",
+            "inference_only=False",
+        ],
+    )
+    self.assertEqual(result.exit_code, 0, repr(result.exception))
+    _, kwargs = mock_pipeline_cls.call_args
+    self.assertEqual(kwargs["eval_args"], {"inference_only": "False"})
+
   def test_staging_flags_usage_errors(self):
     runner = testing.CliRunner()
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -203,6 +232,35 @@ class MainTest(parameterized.TestCase):
       )
       self.assertNotEqual(result.exit_code, 0)
       self.assertIn("require --framework custom", result.output)
+      result = runner.invoke(
+          main.cli,
+          [
+              "--framework",
+              "custom",
+              "--tasks",
+              "t",
+              "--inference-only",
+              "--eval-args",
+              "inference_only=false",
+          ],
+      )
+      self.assertNotEqual(result.exit_code, 0)
+      self.assertIn("conflicts with 'inference_only'", result.output)
+      result = runner.invoke(
+          main.cli,
+          [
+              "--framework",
+              "custom",
+              "--tasks",
+              "t",
+              "--score-from-samples",
+              samples,
+              "--eval-args",
+              f"score_from_samples={samples}",
+          ],
+      )
+      self.assertNotEqual(result.exit_code, 0)
+      self.assertIn("conflicts with 'score_from_samples'", result.output)
     result = runner.invoke(
         main.cli,
         [
@@ -218,6 +276,21 @@ class MainTest(parameterized.TestCase):
     )
     self.assertNotEqual(result.exit_code, 0)
     self.assertIn("require --framework custom", result.output)
+    result = runner.invoke(
+        main.cli,
+        [
+            "--framework",
+            "lm-eval",
+            "--runner",
+            "litert-lm",
+            "--tasks",
+            "t",
+            "--eval-args",
+            "inference_only=ture",
+        ],
+    )
+    self.assertNotEqual(result.exit_code, 0)
+    self.assertIn("Cannot interpret 'ture' as a boolean", result.output)
     result = runner.invoke(main.cli, ["--framework", "custom", "--tasks", "t"])
     self.assertNotEqual(result.exit_code, 0)
     self.assertIn("Missing option '--runner'", result.output)

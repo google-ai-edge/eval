@@ -91,3 +91,25 @@ def parse_chat_score_response(response: dict[str, Any]) -> tuple[float, bool]:
   is_greedy = bool(choice["logprobs"]["is_greedy"])
 
   return score, is_greedy
+
+
+def parse_bool(value: Any) -> bool:
+  """Interprets boolean option values such as `True`, `"true"`, or `"1"`.
+
+  Args:
+    value: Value supplied via CLI `--eval-args` or programmatic config dicts.
+
+  Returns:
+    Parsed boolean value.
+
+  Raises:
+    ValueError: If `value` is a string that is not a recognized boolean token.
+  """
+  if isinstance(value, str):
+    normalized = value.strip().lower()
+    if normalized in ("1", "true", "yes", "on"):
+      return True
+    if normalized in ("0", "false", "no", "off", "none", ""):
+      return False
+    raise ValueError(f"Cannot interpret {value!r} as a boolean.")
+  return bool(value)

@@ -36,6 +36,7 @@ from absl import flags
 from model_eval.api import pipeline as eval_pipeline
 from model_eval.frameworks import base as framework_base
 from model_eval.frameworks import registry as framework_registry
+from model_eval.frameworks import utils as framework_utils
 from model_eval.runners import base as runners_base
 from model_eval.runners import http_server
 from model_eval.runners import litert_lm
@@ -173,12 +174,24 @@ def _execute_eval(
   """
   parsed_eval_args = _parse_csv_args(eval_args)
   if inference_only:
+    if "inference_only" in parsed_eval_args:
+      raise click.UsageError(
+          "--inference-only conflicts with 'inference_only' in --eval-args."
+      )
     parsed_eval_args["inference_only"] = True
   if score_from_samples:
+    if "score_from_samples" in parsed_eval_args:
+      raise click.UsageError(
+          "--score-from-samples conflicts with 'score_from_samples' in"
+          " --eval-args."
+      )
     parsed_eval_args["score_from_samples"] = score_from_samples
-  effective_inference_only = str(
-      parsed_eval_args.get("inference_only", "")
-  ).strip().lower() not in ("", "0", "false", "no", "off", "none")
+  try:
+    effective_inference_only = framework_utils.parse_bool(
+        parsed_eval_args.get("inference_only", False)
+    )
+  except ValueError as e:
+    raise click.UsageError(str(e)) from e
   effective_score_from_samples = parsed_eval_args.get("score_from_samples")
   if effective_inference_only and effective_score_from_samples:
     raise click.UsageError(

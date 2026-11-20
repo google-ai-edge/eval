@@ -257,5 +257,32 @@ class ParseChatScoreResponseEdgeCasesTest(unittest.TestCase):
     self.assertFalse(is_greedy)
 
 
+class ParseBoolTest(unittest.TestCase):
+  """Tests for `parse_bool`."""
+
+  def test_truthy_and_falsy_values(self):
+    for truthy in (True, 1, "1", "true", "TRUE", " yes ", "on"):
+      self.assertTrue(utils.parse_bool(truthy))
+    for falsy in (
+        False,
+        0,
+        None,
+        "0",
+        "false",
+        "FALSE",
+        " no ",
+        "off",
+        "none",
+        "",
+    ):
+      self.assertFalse(utils.parse_bool(falsy))
+
+  def test_invalid_string_raises_value_error(self):
+    with self.assertRaisesRegex(
+        ValueError, "Cannot interpret 'ture' as a boolean"
+    ):
+      utils.parse_bool("ture")
+
+
 if __name__ == "__main__":
   unittest.main()

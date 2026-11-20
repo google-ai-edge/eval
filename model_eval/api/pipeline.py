@@ -24,6 +24,7 @@ from typing import Any, cast
 from model_eval.custom_tasks import registry as tasks_registry
 from model_eval.frameworks import base as framework_base
 from model_eval.frameworks import registry as framework_registry
+from model_eval.frameworks import utils as framework_utils
 from model_eval.runners import base as runner_base
 from model_eval.runners import registry as runner_registry
 
@@ -209,7 +210,15 @@ class EvalPipeline:
           " together."
       )
     score_from_samples = bool(self._eval_args.get("score_from_samples"))
-    inference_only = bool(self._eval_args.get("inference_only"))
+    inference_only = framework_utils.parse_bool(
+        self._eval_args.get("inference_only", False)
+    )
+    # Strip disabled custom-only staging keys so they are never forwarded as
+    # unexpected keyword arguments to non-custom frameworks (lm-eval/lighteval).
+    if not score_from_samples:
+      self._eval_args.pop("score_from_samples", None)
+    if not inference_only:
+      self._eval_args.pop("inference_only", None)
     if score_from_samples and inference_only:
       raise ValueError(
           "Cannot set both 'inference_only' and 'score_from_samples'."

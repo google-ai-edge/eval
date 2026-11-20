@@ -323,6 +323,21 @@ class EvalPipelineTest(absltest.TestCase):
           eval_args={"inference_only": True},
       )
 
+    # Falsy staging values like "False" or "" must neither trigger false errors
+    # nor leak into eval_args forwarded to non-custom frameworks.
+    lm_eval_p = pipeline.EvalPipeline(
+        model=runner_cfg,
+        framework=framework_base.FrameworkType.LM_EVAL,
+        tasks=("t",),
+        output_dir=self.output_dir,
+        eval_args={
+            "inference_only": "False",
+            "score_from_samples": "",
+            "num_fewshot": 5,
+        },
+    )
+    self.assertEqual(lm_eval_p._eval_args, {"num_fewshot": 5})
+
     # When both model and score_from_samples are supplied, run() uses the
     # scoring-only path without creating or starting the runner.
     mock_framework = mock.MagicMock()
@@ -337,12 +352,19 @@ class EvalPipelineTest(absltest.TestCase):
         framework=framework_base.FrameworkType.CUSTOM,
         tasks=("t",),
         output_dir=self.output_dir,
-        eval_args={"score_from_samples": "/tmp/samples.jsonl"},
+        eval_args={
+            "score_from_samples": "/tmp/samples.jsonl",
+            "inference_only": "false",
+        },
     )
     res = p.run()
     self.assertEqual(res.aggregated_metrics, {"t": {"wer": 0.2}})
     mock_create_runner.assert_not_called()
     self.assertIsNone(mock_framework.evaluate.call_args.kwargs["runner"])
+    self.assertEqual(
+        mock_framework.evaluate.call_args.kwargs["eval_args"],
+        {"score_from_samples": "/tmp/samples.jsonl"},
+    )
 
   @mock.patch("model_eval.api.pipeline._load_task_allowlist")
   @mock.patch("model_eval.runners.registry.create_runner")
