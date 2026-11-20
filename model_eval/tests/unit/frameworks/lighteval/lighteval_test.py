@@ -27,6 +27,9 @@ pytest.importorskip(
 from model_eval.frameworks import base
 from model_eval.frameworks.lighteval import lighteval
 from model_eval.runners import base as runner_base
+from lighteval.logging import info_loggers
+from lighteval.models import model_output
+from lighteval.tasks import requests as lighteval_requests
 
 
 class TestLightEvalAdapter(absltest.TestCase):
@@ -228,6 +231,70 @@ class TestLightEvalAdapter(absltest.TestCase):
     self.assertEqual(
         lighteval.LightEvalFramework.subtasks_of("mmlu:abstract_algebra"), []
     )
+
+
+class TestLightEvalDetailsLogger(absltest.TestCase):
+
+  def test_log_and_aggregate_hashes_utf8(self):
+    """Regression test for xxhash >= 4.0 rejecting unencoded str inputs."""
+    logger = info_loggers.DetailsLogger()
+    logger.log(
+        task_name="task_a",
+        doc=lighteval_requests.Doc(
+            query="What is the capital of France?",
+            choices=["Paris", "Lyon"],
+            gold_index=0,
+        ),
+        model_response=model_output.ModelResponse(
+            text=["Paris"],
+            input_tokens=[1, 2, 3],
+            output_tokens=[[4, 5]],
+        ),
+        metrics={"acc": 1.0},
+    )
+    logger.log(
+        task_name="task_b",
+        doc=lighteval_requests.Doc(
+            query="日本の首都はどこですか？",
+            choices=["東京", "大阪"],
+            gold_index=0,
+        ),
+        model_response=model_output.ModelResponse(
+            text=["東京"],
+            input_tokens=[10, 20],
+            output_tokens=[[30]],
+        ),
+        metrics={"acc": 1.0},
+    )
+
+    logger.aggregate()
+
+    expected_hash_keys = (
+        "hash_examples",
+        "hash_full_prompts",
+        "hash_input_tokens",
+        "hash_cont_tokens",
+    )
+    hex64_pattern = r"^[0-9a-f]{16}$"
+
+    for task_name in ("task_a", "task_b"):
+      sample_hash = logger.hashes[task_name][0]
+      self.assertRegex(sample_hash.example, hex64_pattern)
+      self.assertRegex(sample_hash.input_tokens, hex64_pattern)
+      self.assertRegex(sample_hash.cont_tokens, hex64_pattern)
+
+      compiled = logger.compiled_details[task_name].hashes
+      for key in expected_hash_keys:
+        self.assertRegex(compiled[key], hex64_pattern)
+
+    self.assertNotEqual(
+        logger.hashes["task_a"][0].example,
+        logger.hashes["task_b"][0].example,
+    )
+
+    overall = logger.compiled_details_over_all_tasks.hashes
+    for key in expected_hash_keys:
+      self.assertRegex(overall[key], hex64_pattern)
 
 
 if __name__ == "__main__":
