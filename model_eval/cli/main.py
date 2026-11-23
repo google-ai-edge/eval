@@ -325,7 +325,11 @@ def _validate_limit(ctx, param, value):
 )
 @click.option(
     "--framework",
-    type=click.Choice(["lm-eval", "lighteval", "custom"]),
+    type=click.Choice([
+        "lm-eval",
+        "lighteval",
+        "custom",
+    ]),
     default="lm-eval",
     help="Evaluation framework to use.",
 )
