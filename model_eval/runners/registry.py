@@ -14,6 +14,7 @@
 
 """Registry for runner implementations."""
 
+import importlib
 import typing
 from typing import Any, ClassVar, Protocol, TypeVar
 
@@ -31,6 +32,16 @@ class _HasConfig(Protocol):
 T = TypeVar("T", bound=_HasConfig)
 
 _REGISTRY: dict[str, type[_HasConfig]] = {}
+
+# Runners imported on first use, so their dependencies stay optional.
+_LAZY_IMPORTS: dict[str, str] = {
+}
+
+
+def _import_lazy_runner(name: base.RunnerType | str) -> None:
+  """Imports the module that registers runner `name`, if it is lazy."""
+  if name not in _REGISTRY and str(name) in _LAZY_IMPORTS:
+    importlib.import_module(_LAZY_IMPORTS[str(name)])
 
 
 def register_runner(name: base.RunnerType | str):
@@ -65,6 +76,7 @@ def create_runner(
   Returns:
       An instantiated AbstractRunner runner.
   """
+  _import_lazy_runner(name)
   if name not in _REGISTRY:
     raise ValueError(f"Runner '{name}' not found in registry.")
   cls = _REGISTRY[name]
@@ -73,6 +85,7 @@ def create_runner(
 
 def get_runner_cls(name: base.RunnerType | str) -> type[_HasConfig]:
   """Returns the registered class of a runner."""
+  _import_lazy_runner(name)
   if name not in _REGISTRY:
     raise ValueError(f"Runner '{name}' not found in registry.")
   return _REGISTRY[name]
@@ -84,4 +97,4 @@ def get_all_runners() -> list[str]:
   Returns:
       A list of string identifiers for all available runners.
   """
-  return list(_REGISTRY.keys())
+  return list(_REGISTRY) + [n for n in _LAZY_IMPORTS if n not in _REGISTRY]
